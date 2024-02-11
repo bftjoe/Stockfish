@@ -49,6 +49,8 @@ struct CaseInsensitiveLess {
 // The options container is defined as a std::map
 using OptionsMap = std::map<std::string, Option, CaseInsensitiveLess>;
 
+enum struct optT { String = 1, Check, Button, Spin, Combo  };
+
 // The Option class implements each option as specified by the UCI protocol
 class Option {
 
@@ -70,7 +72,8 @@ class Option {
    private:
     friend std::ostream& operator<<(std::ostream&, const OptionsMap&);
 
-    std::string defaultValue, currentValue, type;
+    optT     type;
+    std::string defaultValue, currentValue;
     int         min, max;
     size_t      idx;
     OnChange    on_change;

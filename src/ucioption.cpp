@@ -97,12 +97,31 @@ std::ostream& operator<<(std::ostream& os, const OptionsMap& om) {
             if (it.second.idx == idx)
             {
                 const Option& o = it.second;
-                os << "\noption name " << it.first << " type " << o.type;
+                string typeString;
+                switch (o.type)
+                {
+                    case optT::String:
+                        typeString = "string";
+                        break;
+                    case optT::Check:
+                        typeString = "check";
+                        break;
+                    case optT::Button:
+                        typeString = "button";
+                        break;
+                    case optT::Spin:
+                        typeString = "spin";
+                        break;
+                    case optT::Combo:
+                        typeString = "combo";
+                        break;
+                }
+                os << "\noption name " << it.first << " type " << typeString;
 
-                if (o.type == "string" || o.type == "check" || o.type == "combo")
+                if (o.type == optT::String || o.type == optT::Check || o.type == optT::Combo)
                     os << " default " << o.defaultValue;
 
-                if (o.type == "spin")
+                if (o.type == optT::Spin)
                     os << " default " << int(stof(o.defaultValue)) << " min " << o.min << " max "
                        << o.max;
 
@@ -116,7 +135,7 @@ std::ostream& operator<<(std::ostream& os, const OptionsMap& om) {
 // Option class constructors and conversion operators
 
 Option::Option(const char* v, OnChange f) :
-    type("string"),
+    type(optT::String),
     min(0),
     max(0),
     on_change(f) {
@@ -124,7 +143,7 @@ Option::Option(const char* v, OnChange f) :
 }
 
 Option::Option(bool v, OnChange f) :
-    type("check"),
+    type(optT::Check),
     min(0),
     max(0),
     on_change(f) {
@@ -132,13 +151,13 @@ Option::Option(bool v, OnChange f) :
 }
 
 Option::Option(OnChange f) :
-    type("button"),
+    type(optT::Button),
     min(0),
     max(0),
     on_change(f) {}
 
 Option::Option(double v, int minv, int maxv, OnChange f) :
-    type("spin"),
+    type(optT::Spin),
     min(minv),
     max(maxv),
     on_change(f) {
@@ -146,7 +165,7 @@ Option::Option(double v, int minv, int maxv, OnChange f) :
 }
 
 Option::Option(const char* v, const char* cur, OnChange f) :
-    type("combo"),
+    type(optT::Combo),
     min(0),
     max(0),
     on_change(f) {
@@ -155,17 +174,17 @@ Option::Option(const char* v, const char* cur, OnChange f) :
 }
 
 Option::operator int() const {
-    assert(type == "check" || type == "spin");
-    return (type == "spin" ? std::stoi(currentValue) : currentValue == "true");
+    assert(type == optT::Combo || type == optT::Spin);
+    return (type == optT::Spin ? std::stoi(currentValue) : currentValue == "true");
 }
 
 Option::operator std::string() const {
-    assert(type == "string");
+    assert(type == optT::String);
     return currentValue;
 }
 
 bool Option::operator==(const char* s) const {
-    assert(type == "combo");
+    assert(type == optT::Combo);
     return !CaseInsensitiveLess()(currentValue, s) && !CaseInsensitiveLess()(s, currentValue);
 }
 
@@ -188,12 +207,12 @@ Option& Option::operator=(const string& v) {
 
     assert(!type.empty());
 
-    if ((type != "button" && type != "string" && v.empty())
-        || (type == "check" && v != "true" && v != "false")
-        || (type == "spin" && (stof(v) < min || stof(v) > max)))
+    if ((type != optT::Button && type != optT::String && v.empty())
+        || (type == optT::Check && v != "true" && v != "false")
+        || (type == optT::Spin && (stof(v) < min || stof(v) > max)))
         return *this;
 
-    if (type == "combo")
+    if (type == optT::Combo)
     {
         OptionsMap         comboMap;  // To have case insensitive compare
         string             token;
@@ -204,7 +223,7 @@ Option& Option::operator=(const string& v) {
             return *this;
     }
 
-    if (type != "button")
+    if (type != optT::Button)
         currentValue = v;
 
     if (on_change)
