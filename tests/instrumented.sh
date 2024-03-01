@@ -80,7 +80,6 @@ for args in "eval" \
             "go wtime 8000 btime 8000 winc 500 binc 500" \
             "go wtime 1000 btime 1000 winc 0 binc 0" \
             "go wtime 1000 btime 1000 winc 0 binc 0" \
-            "go wtime 1000 btime 1000 winc 0 binc 0 movestogo 5" \
             "go movetime 200" \
             "go nodes 20000 searchmoves e2e4 d2d4" \
             "bench 128 $threads 8 default depth" \
@@ -134,8 +133,6 @@ cat << EOF > game.exp
  send "go depth 5\n"
  expect "bestmove"
 
- send "setoption name Clear Hash\n"
-
  send "setoption name EvalFile value verify.nnue\n"
  send "position startpos\n"
  send "go depth 5\n"
@@ -152,44 +149,6 @@ cat << EOF > game.exp
  lassign [wait] pid spawnid os_error_flag value
  exit \$value
 EOF
-
-#download TB as needed
-if [ ! -d ../tests/syzygy ]; then
-   curl -sL https://api.github.com/repos/niklasf/python-chess/tarball/9b9aa13f9f36d08aadfabff872882f4ab1494e95 | tar -xzf -
-   mv niklasf-python-chess-9b9aa13 ../tests/syzygy
-fi
-
-cat << EOF > syzygy.exp
- set timeout 240
- spawn $exeprefix ./stockfish
- send "uci\n"
- send "setoption name SyzygyPath value ../tests/syzygy/\n"
- expect "info string Found 35 tablebases" {} timeout {exit 1}
- send "bench 128 1 8 default depth\n"
- send "ucinewgame\n"
- send "position fen 4k3/PP6/8/8/8/8/8/4K3 w - - 0 1\n"
- send "go depth 5\n"
- expect "bestmove"
- send "position fen 8/1P6/2B5/8/4K3/8/6k1/8 w - - 0 1\n"
- send "go depth 5\n"
- expect "bestmove"
- send "quit\n"
- expect eof
-
- # return error code of the spawned program, useful for Valgrind
- lassign [wait] pid spawnid os_error_flag value
- exit \$value
-EOF
-
-for exp in game.exp syzygy.exp
-do
-
-  echo "$prefix expect $exp $postfix"
-  eval "$prefix expect $exp $postfix"
-
-  rm $exp
-
-done
 
 rm -f tsan.supp bench_tmp.epd
 

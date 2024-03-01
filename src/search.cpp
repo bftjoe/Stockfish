@@ -37,7 +37,6 @@
 #include "nnue/evaluate_nnue.h"
 #include "nnue/nnue_common.h"
 #include "position.h"
-#include "syzygy/tbprobe.h"
 #include "thread.h"
 #include "timeman.h"
 #include "tt.h"
@@ -45,8 +44,6 @@
 #include "ucioption.h"
 
 namespace Stockfish {
-
-namespace TB = Tablebases;
 
 using Eval::evaluate;
 using namespace Search;
@@ -151,12 +148,6 @@ void Search::Worker::start_searching() {
     // Wait until all threads have finished
     threads.wait_for_search_finished();
 
-    // When playing in 'nodes as time' mode, subtract the searched nodes from
-    // the available ones before exiting.
-    if (limits.npmsec)
-        main_manager()->tm.advance_nodes_time(limits.inc[rootPos.side_to_move()]
-                                              - threads.nodes_searched());
-
     Worker* bestThread = this;
 
     if (int(options["MultiPV"]) == 1 && !limits.depth && rootMoves[0].pv[0] != Move::none())
@@ -172,8 +163,7 @@ void Search::Worker::start_searching() {
 
     sync_cout << "bestmove " << UCI::move(bestThread->rootMoves[0].pv[0], rootPos.is_chess960());
 
-    if (bestThread->rootMoves[0].pv.size() > 1
-        || bestThread->rootMoves[0].extract_ponder_from_tt(tt, rootPos))
+    if (bestThread->rootMoves[0].pv.size() > 1)
         std::cout << " ponder " << UCI::move(bestThread->rootMoves[0].pv[1], rootPos.is_chess960());
 
     std::cout << sync_endl;
@@ -254,8 +244,7 @@ void Search::Worker::iterative_deepening() {
             {
                 pvFirst = pvLast;
                 for (pvLast++; pvLast < rootMoves.size(); pvLast++)
-                    if (rootMoves[pvLast].tbRank != rootMoves[pvFirst].tbRank)
-                        break;
+                    ;
             }
 
             // Reset UCI info selDepth for each depth and each PV line
@@ -581,59 +570,6 @@ Value Search::Worker::search(
             return ttValue >= beta && std::abs(ttValue) < VALUE_TB_WIN_IN_MAX_PLY
                    ? (ttValue * 3 + beta) / 4
                    : ttValue;
-    }
-
-    // Step 5. Tablebases probe
-    if (!rootNode && !excludedMove && tbConfig.cardinality)
-    {
-        int piecesCount = pos.count<ALL_PIECES>();
-
-        if (piecesCount <= tbConfig.cardinality
-            && (piecesCount < tbConfig.cardinality || depth >= tbConfig.probeDepth)
-            && pos.rule50_count() == 0 && !pos.can_castle(ANY_CASTLING))
-        {
-            TB::ProbeState err;
-            TB::WDLScore   wdl = Tablebases::probe_wdl(pos, &err);
-
-            // Force check of time on the next occasion
-            if (is_mainthread())
-                main_manager()->callsCnt = 0;
-
-            if (err != TB::ProbeState::FAIL)
-            {
-                thisThread->tbHits.fetch_add(1, std::memory_order_relaxed);
-
-                int drawScore = tbConfig.useRule50 ? 1 : 0;
-
-                Value tbValue = VALUE_TB - ss->ply;
-
-                // use the range VALUE_TB to VALUE_TB_WIN_IN_MAX_PLY to score
-                value = wdl < -drawScore ? -tbValue
-                      : wdl > drawScore  ? tbValue
-                                         : VALUE_DRAW + 2 * wdl * drawScore;
-
-                Bound b = wdl < -drawScore ? BOUND_UPPER
-                        : wdl > drawScore  ? BOUND_LOWER
-                                           : BOUND_EXACT;
-
-                if (b == BOUND_EXACT || (b == BOUND_LOWER ? value >= beta : value <= alpha))
-                {
-                    tte->save(posKey, value_to_tt(value, ss->ply), ss->ttPv, b,
-                              std::min(MAX_PLY - 1, depth + 6), Move::none(), VALUE_NONE,
-                              tt.generation());
-
-                    return value;
-                }
-
-                if (PvNode)
-                {
-                    if (b == BOUND_LOWER)
-                        bestValue = value, alpha = std::max(alpha, bestValue);
-                    else
-                        maxValue = value;
-                }
-            }
-        }
     }
 
     // Step 6. Static evaluation of the position
@@ -1779,7 +1715,6 @@ std::string SearchManager::pv(const Search::Worker&     worker,
     size_t      pvIdx     = worker.pvIdx;
     TimePoint   time      = tm.elapsed(nodes) + 1;
     size_t      multiPV   = std::min(size_t(worker.options["MultiPV"]), rootMoves.size());
-    uint64_t    tbHits    = threads.tb_hits() + (worker.tbConfig.rootInTB ? rootMoves.size() : 0);
 
     for (size_t i = 0; i < multiPV; ++i)
     {
@@ -1794,9 +1729,6 @@ std::string SearchManager::pv(const Search::Worker&     worker,
         if (v == -VALUE_INFINITE)
             v = VALUE_ZERO;
 
-        bool tb = worker.tbConfig.rootInTB && std::abs(v) <= VALUE_TB;
-        v       = tb ? rootMoves[i].tbScore : v;
-
         if (ss.rdbuf()->in_avail())  // Not at first line
             ss << "\n";
 
@@ -1807,13 +1739,13 @@ std::string SearchManager::pv(const Search::Worker&     worker,
         if (worker.options["UCI_ShowWDL"])
             ss << UCI::wdl(v, pos.game_ply());
 
-        if (i == pvIdx && !tb && updated)  // tablebase- and previous-scores are exact
+        if (i == pvIdx && updated)  // tablebase- and previous-scores are exact
             ss << (rootMoves[i].scoreLowerbound
                      ? " lowerbound"
                      : (rootMoves[i].scoreUpperbound ? " upperbound" : ""));
 
         ss << " nodes " << nodes << " nps " << nodes * 1000 / time << " hashfull " << tt.hashfull()
-           << " tbhits " << tbHits << " time " << time << " pv";
+            << " time " << time << " pv";
 
         for (Move m : rootMoves[i].pv)
             ss << " " << UCI::move(m, pos.is_chess960());
@@ -1821,35 +1753,5 @@ std::string SearchManager::pv(const Search::Worker&     worker,
 
     return ss.str();
 }
-
-// Called in case we have no ponder move before exiting the search,
-// for instance, in case we stop the search during a fail high at root.
-// We try hard to have a ponder move to return to the GUI,
-// otherwise in case of 'ponder on' we have nothing to think about.
-bool RootMove::extract_ponder_from_tt(const TranspositionTable& tt, Position& pos) {
-
-    StateInfo st;
-    ASSERT_ALIGNED(&st, Eval::NNUE::CacheLineSize);
-
-    bool ttHit;
-
-    assert(pv.size() == 1);
-    if (pv[0] == Move::none())
-        return false;
-
-    pos.do_move(pv[0], st);
-    TTEntry* tte = tt.probe(pos.key(), ttHit);
-
-    if (ttHit)
-    {
-        Move m = tte->move();  // Local copy to be SMP safe
-        if (MoveList<LEGAL>(pos).contains(m))
-            pv.push_back(m);
-    }
-
-    pos.undo_move(pv[0]);
-    return pv.size() > 1;
-}
-
 
 }  // namespace Stockfish

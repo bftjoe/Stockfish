@@ -37,7 +37,6 @@
 #include "nnue/nnue_architecture.h"
 #include "position.h"
 #include "search.h"
-#include "syzygy/tbprobe.h"
 #include "types.h"
 #include "ucioption.h"
 #include "perft.h"
@@ -47,6 +46,13 @@ namespace Stockfish {
 constexpr auto StartFEN             = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 constexpr int  NormalizeToPawnValue = 356;
 constexpr int  MaxHashMB            = Is64Bit ? 33554432 : 2048;
+
+void UCI::search_clear() {
+    threads.main_thread()->wait_for_search_finished();
+
+    tt.clear(options["Threads"]);
+    threads.clear();
+}
 
 UCI::UCI(int argc, char** argv) :
     cli(argc, argv) {
@@ -63,17 +69,11 @@ UCI::UCI(int argc, char** argv) :
         tt.resize(o, options["Threads"]);
     });
 
-    options["Clear Hash"] << Option([this](const Option&) { search_clear(); });
     options["Ponder"] << Option(false);
     options["MultiPV"] << Option(1, 1, MAX_MOVES);
     options["Move Overhead"] << Option(10, 0, 5000);
-    options["nodestime"] << Option(0, 0, 10000);
     options["UCI_Chess960"] << Option(false);
     options["UCI_ShowWDL"] << Option(false);
-    options["SyzygyPath"] << Option("<empty>", [](const Option& o) { Tablebases::init(o); });
-    options["SyzygyProbeDepth"] << Option(1, 1, 100);
-    options["Syzygy50MoveRule"] << Option(true);
-    options["SyzygyProbeLimit"] << Option(7, 0, 7);
     options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option&) {
         evalFiles = Eval::NNUE::load_networks(cli.binaryDirectory, options, evalFiles);
     });
@@ -82,8 +82,6 @@ UCI::UCI(int argc, char** argv) :
     });
 
     threads.set({options, threads, tt});
-
-    search_clear();  // After threads are up
 }
 
 void UCI::loop() {
@@ -188,8 +186,6 @@ void UCI::go(Position& pos, std::istringstream& is, StateListPtr& states) {
             is >> limits.inc[WHITE];
         else if (token == "binc")
             is >> limits.inc[BLACK];
-        else if (token == "movestogo")
-            is >> limits.movestogo;
         else if (token == "depth")
             is >> limits.depth;
         else if (token == "nodes")
@@ -213,7 +209,7 @@ void UCI::go(Position& pos, std::istringstream& is, StateListPtr& states) {
         return;
     }
 
-    threads.start_thinking(options, pos, states, limits, ponderMode);
+    threads.start_thinking(pos, states, limits, ponderMode);
 }
 
 void UCI::bench(Position& pos, std::istream& args, StateListPtr& states) {
@@ -271,14 +267,6 @@ void UCI::trace_eval(Position& pos) {
     Eval::NNUE::verify(options, evalFiles);
 
     sync_cout << "\n" << Eval::trace(p) << sync_endl;
-}
-
-void UCI::search_clear() {
-    threads.main_thread()->wait_for_search_finished();
-
-    tt.clear(options["Threads"]);
-    threads.clear();
-    Tablebases::init(options["SyzygyPath"]);  // Free mapped files
 }
 
 void UCI::setoption(std::istringstream& is) {
