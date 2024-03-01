@@ -110,7 +110,6 @@ cat << EOF > game.exp
  send "uci\n"
  expect "uciok"
 
- # send "setoption name Debug Log File value debug.log\n"
  send "setoption name Threads value $threads\n"
 
  send "ucinewgame\n"
@@ -128,11 +127,9 @@ cat << EOF > game.exp
 
  send "setoption name UCI_ShowWDL value true\n"
  send "position startpos\n"
- send "flip\n"
  send "go depth 5\n"
  expect "bestmove"
 
- send "setoption name Skill Level value 10\n"
  send "position startpos\n"
  send "go depth 5\n"
  expect "bestmove"

@@ -54,9 +54,6 @@ UCI::UCI(int argc, char** argv) :
     evalFiles = {{Eval::NNUE::Big, {"EvalFile", EvalFileDefaultNameBig, "None", ""}},
                  {Eval::NNUE::Small, {"EvalFileSmall", EvalFileDefaultNameSmall, "None", ""}}};
 
-
-    options["Debug Log File"] << Option("", [](const Option& o) { start_logger(o); });
-
     options["Threads"] << Option(1, 1, 1024, [this](const Option&) {
         threads.set({options, threads, tt});
     });
@@ -69,12 +66,9 @@ UCI::UCI(int argc, char** argv) :
     options["Clear Hash"] << Option([this](const Option&) { search_clear(); });
     options["Ponder"] << Option(false);
     options["MultiPV"] << Option(1, 1, MAX_MOVES);
-    options["Skill Level"] << Option(20, 0, 20);
     options["Move Overhead"] << Option(10, 0, 5000);
     options["nodestime"] << Option(0, 0, 10000);
     options["UCI_Chess960"] << Option(false);
-    options["UCI_LimitStrength"] << Option(false);
-    options["UCI_Elo"] << Option(1320, 1320, 3190);
     options["UCI_ShowWDL"] << Option(false);
     options["SyzygyPath"] << Option("<empty>", [](const Option& o) { Tablebases::init(o); });
     options["SyzygyProbeDepth"] << Option(1, 1, 100);
@@ -141,8 +135,6 @@ void UCI::loop() {
 
         // Add custom non-UCI commands, mainly for debugging purposes.
         // These commands must not be used during a search!
-        else if (token == "flip")
-            pos.flip();
         else if (token == "bench")
             bench(pos, is, states);
         else if (token == "d")
@@ -265,8 +257,6 @@ void UCI::bench(Position& pos, std::istream& args, StateListPtr& states) {
     }
 
     elapsed = now() - elapsed + 1;  // Ensure positivity to avoid a 'divide by zero'
-
-    dbg_print();
 
     std::cerr << "\n==========================="
               << "\nTotal time (ms) : " << elapsed << "\nNodes searched  : " << nodes
