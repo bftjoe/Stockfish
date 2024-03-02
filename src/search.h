@@ -77,7 +77,6 @@ struct RootMove {
 
     explicit RootMove(Move m) :
         pv(1, m) {}
-    bool extract_ponder_from_tt(const TranspositionTable& tt, Position& pos);
     bool operator==(const Move& m) const { return pv[0] == m; }
     // Sort in descending order
     bool operator<(const RootMove& m) const {
@@ -90,7 +89,6 @@ struct RootMove {
     Value             uciScore        = -VALUE_INFINITE;
     bool              scoreLowerbound = false;
     bool              scoreUpperbound = false;
-    int               selDepth        = 0;
     std::vector<Move> pv;
 };
 
@@ -104,16 +102,14 @@ struct LimitsType {
     // Init explicitly due to broken value-initialization of non POD in MSVC
     LimitsType() {
         time[WHITE] = time[BLACK] = inc[WHITE] = inc[BLACK] = movetime = TimePoint(0);
-        depth = mate = perft = infinite = 0;
-        nodes = 0;
+        depth = mate = perft = infinite = nodes = 0;
     }
 
     bool use_time_management() const { return time[WHITE] || time[BLACK]; }
 
-    std::vector<Move> searchmoves;
-    TimePoint         time[COLOR_NB], inc[COLOR_NB], movetime, startTime;
-    int               depth, mate, perft, infinite;
-    uint64_t          nodes;
+    TimePoint time[COLOR_NB], inc[COLOR_NB], movetime, startTime;
+    int       depth, mate, perft, infinite;
+    uint64_t  nodes;
 };
 
 
@@ -222,7 +218,7 @@ class Worker {
 
     size_t                pvIdx, pvLast;
     std::atomic<uint64_t> nodes, bestMoveChanges;
-    int                   selDepth, nmpMinPly;
+    int                   nmpMinPly;
 
     Value optimism[COLOR_NB];
 

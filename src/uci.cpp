@@ -25,7 +25,6 @@
 #include <cstdlib>
 #include <deque>
 #include <memory>
-#include <optional>
 #include <sstream>
 #include <vector>
 #include <cstdint>
@@ -33,7 +32,6 @@
 #include "benchmark.h"
 #include "evaluate.h"
 #include "movegen.h"
-#include "nnue/evaluate_nnue.h"
 #include "nnue/nnue_architecture.h"
 #include "position.h"
 #include "search.h"
@@ -64,7 +62,7 @@ UCI::UCI(int argc, char** argv) :
         threads.set({options, threads, tt});
     });
 
-    options["Hash"] << Option(16, 1, MaxHashMB, [this](const Option& o) {
+    options["Hash"] << Option(32, 32, MaxHashMB, [this](const Option& o) {
         threads.main_thread()->wait_for_search_finished();
         tt.resize(o, options["Threads"]);
     });
@@ -137,18 +135,8 @@ void UCI::loop() {
             bench(pos, is, states);
         else if (token == "d")
             sync_cout << pos << sync_endl;
-        else if (token == "eval")
-            trace_eval(pos);
         else if (token == "compiler")
             sync_cout << compiler_info() << sync_endl;
-        else if (token == "export_net")
-        {
-            std::optional<std::string> filename;
-            std::string                f;
-            if (is >> std::skipws >> f)
-                filename = f;
-            Eval::NNUE::save_eval(filename, Eval::NNUE::Big, evalFiles);
-        }
         else if (token == "--help" || token == "help" || token == "--license" || token == "license")
             sync_cout
               << "\nStockfish is a powerful chess engine for playing and analyzing."
@@ -174,11 +162,7 @@ void UCI::go(Position& pos, std::istringstream& is, StateListPtr& states) {
     limits.startTime = now();  // The search starts as early as possible
 
     while (is >> token)
-        if (token == "searchmoves")  // Needs to be the last command on the line
-            while (is >> token)
-                limits.searchmoves.push_back(to_move(pos, token));
-
-        else if (token == "wtime")
+        if (token == "wtime")
             is >> limits.time[WHITE];
         else if (token == "btime")
             is >> limits.time[BLACK];
@@ -228,18 +212,13 @@ void UCI::bench(Position& pos, std::istream& args, StateListPtr& states) {
         std::istringstream is(cmd);
         is >> std::skipws >> token;
 
-        if (token == "go" || token == "eval")
+        if (token == "go")
         {
             std::cerr << "\nPosition: " << cnt++ << '/' << num << " (" << pos.fen() << ")"
                       << std::endl;
-            if (token == "go")
-            {
-                go(pos, is, states);
-                threads.main_thread()->wait_for_search_finished();
-                nodes += threads.nodes_searched();
-            }
-            else
-                trace_eval(pos);
+            go(pos, is, states);
+            threads.main_thread()->wait_for_search_finished();
+            nodes += threads.nodes_searched();
         }
         else if (token == "setoption")
             setoption(is);
@@ -257,16 +236,6 @@ void UCI::bench(Position& pos, std::istream& args, StateListPtr& states) {
     std::cerr << "\n==========================="
               << "\nTotal time (ms) : " << elapsed << "\nNodes searched  : " << nodes
               << "\nNodes/second    : " << 1000 * nodes / elapsed << std::endl;
-}
-
-void UCI::trace_eval(Position& pos) {
-    StateListPtr states(new std::deque<StateInfo>(1));
-    Position     p;
-    p.set(pos.fen(), options["UCI_Chess960"], &states->back());
-
-    Eval::NNUE::verify(options, evalFiles);
-
-    sync_cout << "\n" << Eval::trace(p) << sync_endl;
 }
 
 void UCI::setoption(std::istringstream& is) {

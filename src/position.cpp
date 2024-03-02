@@ -27,7 +27,6 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
-#include <string_view>
 #include <utility>
 
 #include "bitboard.h"
@@ -49,8 +48,6 @@ Key side, noPawns;
 }
 
 namespace {
-
-constexpr std::string_view PieceToChar(" PNBRQK  pnbrqk");
 
 constexpr Piece Pieces[] = {W_PAWN, W_KNIGHT, W_BISHOP, W_ROOK, W_QUEEN, W_KING,
                             B_PAWN, B_KNIGHT, B_BISHOP, B_ROOK, B_QUEEN, B_KING};

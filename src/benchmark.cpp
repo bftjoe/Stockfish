@@ -114,7 +114,7 @@ std::vector<std::string> setup_bench(const Position& current, std::istream& is) 
     std::string              go, token;
 
     // Assign default values to missing arguments
-    std::string ttSize    = (is >> token) ? token : "16";
+    std::string ttSize    = (is >> token) ? token : "32";
     std::string threads   = (is >> token) ? token : "1";
     std::string limit     = (is >> token) ? token : "13";
     std::string fenFile   = (is >> token) ? token : "default";

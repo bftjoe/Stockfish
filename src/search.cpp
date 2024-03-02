@@ -150,16 +150,8 @@ void Search::Worker::start_searching() {
 
     Worker* bestThread = this;
 
-    if (int(options["MultiPV"]) == 1 && !limits.depth && rootMoves[0].pv[0] != Move::none())
-        bestThread = threads.get_best_thread()->worker.get();
-
     main_manager()->bestPreviousScore        = bestThread->rootMoves[0].score;
     main_manager()->bestPreviousAverageScore = bestThread->rootMoves[0].averageScore;
-
-    // Send again PV info if we have a new best thread
-    if (bestThread != this)
-        sync_cout << main_manager()->pv(*bestThread, threads, tt, bestThread->completedDepth)
-                  << sync_endl;
 
     sync_cout << "bestmove " << UCI::move(bestThread->rootMoves[0].pv[0], rootPos.is_chess960());
 
@@ -246,9 +238,6 @@ void Search::Worker::iterative_deepening() {
                 for (pvLast++; pvLast < rootMoves.size(); pvLast++)
                     ;
             }
-
-            // Reset UCI info selDepth for each depth and each PV line
-            selDepth = 0;
 
             // Reset aspiration window starting size
             Value avg = rootMoves[pvIdx].averageScore;
@@ -494,10 +483,6 @@ Value Search::Worker::search(
     // Check for the available remaining time
     if (is_mainthread())
         main_manager()->check_time(*thisThread);
-
-    // Used to send selDepth info to GUI (selDepth counts from 1, ply from 0)
-    if (PvNode && thisThread->selDepth < ss->ply + 1)
-        thisThread->selDepth = ss->ply + 1;
 
     if (!rootNode)
     {
@@ -803,8 +788,7 @@ moves_loop:  // When in check, search starts here
             continue;
 
         // At root obey the "searchmoves" option and skip moves not listed in Root
-        // Move List. In MultiPV mode we also skip PV moves that have been already
-        // searched and those of lower "TB rank" if we are in a TB root position.
+        // Move List.
         if (rootNode
             && !std::count(thisThread->rootMoves.begin() + thisThread->pvIdx,
                            thisThread->rootMoves.begin() + thisThread->pvLast, move))
@@ -1103,7 +1087,6 @@ moves_loop:  // When in check, search starts here
             if (moveCount == 1 || value > alpha)
             {
                 rm.score = rm.uciScore = value;
-                rm.selDepth            = thisThread->selDepth;
                 rm.scoreLowerbound = rm.scoreUpperbound = false;
 
                 if (value >= beta)
@@ -1287,10 +1270,6 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta,
     bestMove           = Move::none();
     ss->inCheck        = pos.checkers();
     moveCount          = 0;
-
-    // Used to send selDepth info to GUI (selDepth counts from 1, ply from 0)
-    if (PvNode && thisThread->selDepth < ss->ply + 1)
-        thisThread->selDepth = ss->ply + 1;
 
     // Step 2. Check for an immediate draw or maximum ply reached
     if (pos.is_draw(ss->ply) || ss->ply >= MAX_PLY)
@@ -1732,20 +1711,18 @@ std::string SearchManager::pv(const Search::Worker&     worker,
         if (ss.rdbuf()->in_avail())  // Not at first line
             ss << "\n";
 
-        ss << "info"
-           << " depth " << d << " seldepth " << rootMoves[i].selDepth << " multipv " << i + 1
-           << " score " << UCI::value(v);
+        ss << "info depth " << d << " multipv " << i + 1 << " score " << UCI::value(v);
 
         if (worker.options["UCI_ShowWDL"])
             ss << UCI::wdl(v, pos.game_ply());
 
-        if (i == pvIdx && updated)  // tablebase- and previous-scores are exact
+        if (i == pvIdx && updated)  // previous-scores are exact
             ss << (rootMoves[i].scoreLowerbound
                      ? " lowerbound"
                      : (rootMoves[i].scoreUpperbound ? " upperbound" : ""));
 
-        ss << " nodes " << nodes << " nps " << nodes * 1000 / time << " hashfull " << tt.hashfull()
-            << " time " << time << " pv";
+        ss << " nodes " << nodes << " nps " << nodes * 1000 / time <<
+             " hashfull " << tt.hashfull() << " time " << time << " pv";
 
         for (Move m : rootMoves[i].pv)
             ss << " " << UCI::move(m, pos.is_chess960());

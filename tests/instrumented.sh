@@ -81,10 +81,9 @@ for args in "eval" \
             "go wtime 1000 btime 1000 winc 0 binc 0" \
             "go wtime 1000 btime 1000 winc 0 binc 0" \
             "go movetime 200" \
-            "go nodes 20000 searchmoves e2e4 d2d4" \
+            "go nodes 20000" \
             "bench 128 $threads 8 default depth" \
             "bench 128 $threads 3 bench_tmp.epd depth" \
-            "export_net verify.nnue" \
             "d" \
             "compiler" \
             "license" \
@@ -95,11 +94,6 @@ do
    eval "$prefix $exeprefix ./stockfish $args $postfix"
 
 done
-
-# verify the generated net equals the base net
-network=`./stockfish uci | grep 'option name EvalFile type string default' | awk '{print $NF}'`
-echo "Comparing $network to the written verify.nnue"
-diff $network verify.nnue
 
 # more general testing, following an uci protocol exchange
 cat << EOF > game.exp

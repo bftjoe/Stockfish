@@ -68,7 +68,6 @@ class UCI {
     void bench(Position& pos, std::istream& args, StateListPtr& states);
     void position(Position& pos, std::istringstream& is, StateListPtr& states);
     void search_clear();
-    void trace_eval(Position& pos);
     void setoption(std::istringstream& is);
 };
 

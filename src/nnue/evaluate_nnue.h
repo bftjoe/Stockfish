@@ -74,7 +74,6 @@ using AlignedPtr = std::unique_ptr<T, AlignedDeleter<T>>;
 template<typename T>
 using LargePagePtr = std::unique_ptr<T, LargePageDeleter<T>>;
 
-std::string trace(Position& pos);
 template<NetSize Net_Size>
 Value evaluate(const Position& pos,
                bool            adjusted   = false,

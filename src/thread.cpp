@@ -18,11 +18,9 @@
 
 #include "thread.h"
 
-#include <algorithm>
 #include <cassert>
 #include <deque>
 #include <memory>
-#include <unordered_map>
 #include <utility>
 #include <array>
 
@@ -174,9 +172,7 @@ void ThreadPool::start_thinking(Position&          pos,
     Search::RootMoves rootMoves;
 
     for (const auto& m : MoveList<LEGAL>(pos))
-        if (limits.searchmoves.empty()
-            || std::count(limits.searchmoves.begin(), limits.searchmoves.end(), m))
-            rootMoves.emplace_back(m);
+        rootMoves.emplace_back(m);
 
     // After ownership transfer 'states' becomes empty, so if we stop the search
     // and call 'go' again without setting a new position states.get() == nullptr.
@@ -193,8 +189,7 @@ void ThreadPool::start_thinking(Position&          pos,
     for (Thread* th : threads)
     {
         th->worker->limits = limits;
-        th->worker->nodes = th->worker->nmpMinPly =
-          th->worker->bestMoveChanges          = 0;
+        th->worker->nodes = th->worker->nmpMinPly = th->worker->bestMoveChanges = 0;
         th->worker->rootDepth = th->worker->completedDepth = 0;
         th->worker->rootMoves                              = rootMoves;
         th->worker->rootPos.set(pos.fen(), pos.is_chess960(), &th->worker->rootState);
@@ -204,73 +199,6 @@ void ThreadPool::start_thinking(Position&          pos,
 
     main_thread()->start_searching();
 }
-
-Thread* ThreadPool::get_best_thread() const {
-
-    Thread* bestThread = threads.front();
-    Value   minScore   = VALUE_NONE;
-
-    std::unordered_map<Move, int64_t, Move::MoveHash> votes(
-      2 * std::min(size(), bestThread->worker->rootMoves.size()));
-
-    // Find the minimum score of all threads
-    for (Thread* th : threads)
-        minScore = std::min(minScore, th->worker->rootMoves[0].score);
-
-    // Vote according to score and depth, and select the best thread
-    auto thread_voting_value = [minScore](Thread* th) {
-        return (th->worker->rootMoves[0].score - minScore + 14) * int(th->worker->completedDepth);
-    };
-
-    for (Thread* th : threads)
-        votes[th->worker->rootMoves[0].pv[0]] += thread_voting_value(th);
-
-    for (Thread* th : threads)
-    {
-        const auto bestThreadScore = bestThread->worker->rootMoves[0].score;
-        const auto newThreadScore  = th->worker->rootMoves[0].score;
-
-        const auto& bestThreadPV = bestThread->worker->rootMoves[0].pv;
-        const auto& newThreadPV  = th->worker->rootMoves[0].pv;
-
-        const auto bestThreadMoveVote = votes[bestThreadPV[0]];
-        const auto newThreadMoveVote  = votes[newThreadPV[0]];
-
-        const bool bestThreadInProvenWin = bestThreadScore >= VALUE_TB_WIN_IN_MAX_PLY;
-        const bool newThreadInProvenWin  = newThreadScore >= VALUE_TB_WIN_IN_MAX_PLY;
-
-        const bool bestThreadInProvenLoss =
-          bestThreadScore != -VALUE_INFINITE && bestThreadScore <= VALUE_TB_LOSS_IN_MAX_PLY;
-        const bool newThreadInProvenLoss =
-          newThreadScore != -VALUE_INFINITE && newThreadScore <= VALUE_TB_LOSS_IN_MAX_PLY;
-
-        // Note that we make sure not to pick a thread with truncated-PV for better viewer experience.
-        const bool betterVotingValue =
-          thread_voting_value(th) * int(newThreadPV.size() > 2)
-          > thread_voting_value(bestThread) * int(bestThreadPV.size() > 2);
-
-        if (bestThreadInProvenWin)
-        {
-            // Make sure we pick the shortest mate / TB conversion
-            if (newThreadScore > bestThreadScore)
-                bestThread = th;
-        }
-        else if (bestThreadInProvenLoss)
-        {
-            // Make sure we pick the shortest mated / TB conversion
-            if (newThreadInProvenLoss && newThreadScore < bestThreadScore)
-                bestThread = th;
-        }
-        else if (newThreadInProvenWin || newThreadInProvenLoss
-                 || (newThreadScore > VALUE_TB_LOSS_IN_MAX_PLY
-                     && (newThreadMoveVote > bestThreadMoveVote
-                         || (newThreadMoveVote == bestThreadMoveVote && betterVotingValue))))
-            bestThread = th;
-    }
-
-    return bestThread;
-}
-
 
 // Start non-main threads
 // Will be invoked by main thread after it has started searching

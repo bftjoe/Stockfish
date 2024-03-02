@@ -23,10 +23,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <optional>
-#include <sstream>
 #include <unordered_map>
 #include <vector>
 
@@ -216,35 +214,6 @@ Value Eval::evaluate(const Position& pos, int optimism) {
     v = std::clamp(v, VALUE_TB_LOSS_IN_MAX_PLY + 1, VALUE_TB_WIN_IN_MAX_PLY - 1);
 
     return v;
-}
-
-// Like evaluate(), but instead of returning a value, it returns
-// a string (suitable for outputting to stdout) that contains the detailed
-// descriptions and values of each evaluation term. Useful for debugging.
-// Trace scores are from white's point of view
-std::string Eval::trace(Position& pos) {
-
-    if (pos.checkers())
-        return "Final evaluation: none (in check)";
-
-    std::stringstream ss;
-    ss << std::showpoint << std::noshowpos << std::fixed << std::setprecision(2);
-    ss << '\n' << NNUE::trace(pos) << '\n';
-
-    ss << std::showpoint << std::showpos << std::fixed << std::setprecision(2) << std::setw(15);
-
-    Value v;
-    v = NNUE::evaluate<NNUE::Big>(pos, false);
-    v = pos.side_to_move() == WHITE ? v : -v;
-    ss << "NNUE evaluation        " << 0.01 * UCI::to_cp(v) << " (white side)\n";
-
-    v = evaluate(pos, VALUE_ZERO);
-    v = pos.side_to_move() == WHITE ? v : -v;
-    ss << "Final evaluation       " << 0.01 * UCI::to_cp(v) << " (white side)";
-    ss << " [with scaled NNUE, ...]";
-    ss << "\n";
-
-    return ss.str();
 }
 
 }  // namespace Stockfish

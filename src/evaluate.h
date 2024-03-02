@@ -31,8 +31,6 @@ class OptionsMap;
 
 namespace Eval {
 
-std::string trace(Position& pos);
-
 int   simple_eval(const Position& pos, Color c);
 Value evaluate(const Position& pos, int optimism);
 
