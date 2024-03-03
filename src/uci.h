@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef UCI_H_INCLUDED
-#define UCI_H_INCLUDED
+#pragma once
 
 #include <iostream>
 #include <string>
@@ -73,4 +72,3 @@ class UCI {
 
 }  // namespace Stockfish
 
-#endif  // #ifndef UCI_H_INCLUDED

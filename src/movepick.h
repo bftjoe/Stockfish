@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef MOVEPICK_H_INCLUDED
-#define MOVEPICK_H_INCLUDED
+#pragma once
 
 #include <array>
 #include <cassert>
@@ -197,4 +196,3 @@ class MovePicker {
 
 }  // namespace Stockfish
 
-#endif  // #ifndef MOVEPICK_H_INCLUDED

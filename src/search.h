@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef SEARCH_H_INCLUDED
-#define SEARCH_H_INCLUDED
+#pragma once
 
 #include <array>
 #include <atomic>
@@ -249,4 +248,3 @@ class Worker {
 
 }  // namespace Stockfish
 
-#endif  // #ifndef SEARCH_H_INCLUDED

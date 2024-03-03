@@ -6,8 +6,7 @@
  * Facilities for including binary files into the current translation unit
  * and making use of them externally in other translation units.
  */
-#ifndef INCBIN_HDR
-#define INCBIN_HDR
+#pragma once
 #include <limits.h>
 #if   defined(__AVX512BW__) || \
       defined(__AVX512CD__) || \
@@ -364,5 +363,4 @@
     ); \
     INCBIN_EXTERN(NAME)
 
-#endif
 #endif

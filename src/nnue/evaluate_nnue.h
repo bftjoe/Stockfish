@@ -18,8 +18,7 @@
 
 // header used in NNUE evaluation function
 
-#ifndef NNUE_EVALUATE_NNUE_H_INCLUDED
-#define NNUE_EVALUATE_NNUE_H_INCLUDED
+#pragma once
 
 #include <cstdint>
 #include <iosfwd>
@@ -92,4 +91,3 @@ bool                       save_eval(const std::optional<std::string>& filename,
 
 }  // namespace Stockfish::Eval::NNUE
 
-#endif  // #ifndef NNUE_EVALUATE_NNUE_H_INCLUDED

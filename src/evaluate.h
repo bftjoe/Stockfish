@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef EVALUATE_H_INCLUDED
-#define EVALUATE_H_INCLUDED
+#pragma once
 
 #include <string>
 #include <unordered_map>
@@ -66,4 +65,3 @@ void      verify(const OptionsMap&, const EvalFiles&);
 
 }  // namespace Stockfish
 
-#endif  // #ifndef EVALUATE_H_INCLUDED

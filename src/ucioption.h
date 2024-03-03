@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef UCIOPTION_H_INCLUDED
-#define UCIOPTION_H_INCLUDED
+#pragma once
 
 #include <cstddef>
 #include <functional>
@@ -78,4 +77,3 @@ class Option {
 };
 
 }
-#endif  // #ifndef UCIOPTION_H_INCLUDED
