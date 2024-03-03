@@ -23,7 +23,6 @@
 #include "evaluate.h"
 #include "misc.h"
 #include "position.h"
-#include "tune.h"
 #include "types.h"
 #include "uci.h"
 
@@ -37,8 +36,6 @@ int main(int argc, char* argv[]) {
     Position::init();
 
     UCI uci(argc, argv);
-
-    Tune::init(uci.options);
 
     uci.evalFiles = Eval::NNUE::load_networks(uci.workingDirectory(), uci.options, uci.evalFiles);
 

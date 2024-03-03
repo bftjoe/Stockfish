@@ -356,10 +356,9 @@ jobs:
 
       # Other tests
 
-      - name: Check perft and search reproducibility
+      - name: Check search reproducibility
         if: matrix.config.run_64bit_tests
         run: |
           make clean
           make -j4 ARCH=x86-64-avx2 build
-          ../tests/perft.sh
           ../tests/reprosearch.sh

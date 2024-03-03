@@ -275,12 +275,6 @@ void Search::Worker::iterative_deepening() {
                 if (threads.stop)
                     break;
 
-                // When failing high/low give some update (without cluttering
-                // the UI) before a re-search.
-                if (mainThread && multiPV == 1 && (bestValue <= alpha || bestValue >= beta)
-                    && mainThread->tm.elapsed(threads.nodes_searched()) > 3000)
-                    sync_cout << main_manager()->pv(*this, threads, tt, rootDepth) << sync_endl;
-
                 // In case of failing low/high increase aspiration window and
                 // re-search, otherwise exit the loop.
                 if (bestValue <= alpha)
@@ -339,11 +333,6 @@ void Search::Worker::iterative_deepening() {
             lastBestScore     = rootMoves[0].score;
             lastBestMoveDepth = rootDepth;
         }
-
-        // Have we found a "mate in x"?
-        if (limits.mate && bestValue >= VALUE_MATE_IN_MAX_PLY
-            && VALUE_MATE - bestValue <= 2 * limits.mate)
-            threads.stop = true;
 
         if (!mainThread)
             continue;
@@ -785,13 +774,6 @@ moves_loop:  // When in check, search starts here
 
         // Check for legality
         if (!pos.legal(move))
-            continue;
-
-        // At root obey the "searchmoves" option and skip moves not listed in Root
-        // Move List.
-        if (rootNode
-            && !std::count(thisThread->rootMoves.begin() + thisThread->pvIdx,
-                           thisThread->rootMoves.begin() + thisThread->pvLast, move))
             continue;
 
         ss->moveCount = ++moveCount;
@@ -1664,8 +1646,7 @@ void SearchManager::check_time(Search::Worker& worker) {
         return;
 
     // When using nodes, ensure checking rate is not lower than 0.1% of nodes
-    callsCnt = worker.limits.nodes ? std::min(512, int(worker.limits.nodes / 1024)) : 512;
-
+    callsCnt = 1024;
     TimePoint elapsed = tm.elapsed(worker.threads.nodes_searched());
 
     // We should not stop pondering until told so by the GUI

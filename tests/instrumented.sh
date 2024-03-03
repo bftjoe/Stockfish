@@ -75,7 +75,6 @@ EOF
 for args in "eval" \
             "go nodes 1000" \
             "go depth 10" \
-            "go perft 4" \
             "go movetime 1000" \
             "go wtime 8000 btime 8000 winc 500 binc 500" \
             "go wtime 1000 btime 1000 winc 0 binc 0" \
