@@ -2623,6 +2623,7 @@ struct alignas(CacheLineSize) Accumulator {
     std::int16_t accumulation[2][Size];
     std::int32_t psqtAccumulation[2][PSQTBuckets];
     bool         computed[2];
+    bool         computedPSQT[2];
 };
 
 }  // namespace Stockfish::Eval::NNUE
@@ -3751,6 +3752,8 @@ struct TTEntry {
     bool  is_pv() const { return bool(genBound8 & 0x4); }
     Bound bound() const { return Bound(genBound8 & 0x3); }
     void  save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev, uint8_t generation8);
+    // The returned age is a multiple of TranspositionTable::GENERATION_DELTA
+    uint8_t relative_age(const uint8_t generation8) const;
 
    private:
     friend class TranspositionTable;
@@ -3780,16 +3783,25 @@ class TranspositionTable {
     static_assert(sizeof(Cluster) == 32, "Unexpected Cluster size");
 
     // Constants used to refresh the hash table periodically
-    static constexpr unsigned GENERATION_BITS = 3;  // nb of bits reserved for other things
-    static constexpr int      GENERATION_DELTA =
-      (1 << GENERATION_BITS);  // increment for generation field
-    static constexpr int GENERATION_CYCLE = 255 + (1 << GENERATION_BITS);  // cycle length
-    static constexpr int GENERATION_MASK =
-      (0xFF << GENERATION_BITS) & 0xFF;  // mask to pull out generation number
+
+    // We have 8 bits available where the lowest 3 bits are
+    // reserved for other things.
+    static constexpr unsigned GENERATION_BITS = 3;
+    // increment for generation field
+    static constexpr int GENERATION_DELTA = (1 << GENERATION_BITS);
+    // cycle length
+    static constexpr int GENERATION_CYCLE = 255 + GENERATION_DELTA;
+    // mask to pull out generation number
+    static constexpr int GENERATION_MASK = (0xFF << GENERATION_BITS) & 0xFF;
 
    public:
     ~TranspositionTable() { aligned_large_pages_free(table); }
-    void new_search() { generation8 += GENERATION_DELTA; }  // Lower bits are used for other things
+
+    void new_search() {
+        // increment by delta to keep lower bits as is
+        generation8 += GENERATION_DELTA;
+    }
+
     TTEntry* probe(const Key key, bool& found) const;
     int      hashfull() const;
     void     resize(size_t mbSize, int threadCount);
@@ -4822,17 +4834,21 @@ class FeatureTransformer {
     }
 
     // Convert input features
-    std::int32_t transform(const Position& pos, OutputType* output, int bucket) const {
-        update_accumulator<WHITE>(pos);
-        update_accumulator<BLACK>(pos);
+    std::int32_t
+    transform(const Position& pos, OutputType* output, int bucket, bool psqtOnly) const {
+        update_accumulator<WHITE>(pos, psqtOnly);
+        update_accumulator<BLACK>(pos, psqtOnly);
 
         const Color perspectives[2]  = {pos.side_to_move(), ~pos.side_to_move()};
-        const auto& accumulation     = (pos.state()->*accPtr).accumulation;
         const auto& psqtAccumulation = (pos.state()->*accPtr).psqtAccumulation;
-
-        const auto psqt =
+        const auto  psqt =
           (psqtAccumulation[perspectives[0]][bucket] - psqtAccumulation[perspectives[1]][bucket])
           / 2;
+
+        if (psqtOnly)
+            return psqt;
+
+        const auto& accumulation = (pos.state()->*accPtr).accumulation;
 
         for (IndexType p = 0; p < 2; ++p)
         {
@@ -4883,20 +4899,22 @@ class FeatureTransformer {
         return psqt;
     }  // end of function transform()
 
-    void hint_common_access(const Position& pos) const {
-        hint_common_access_for_perspective<WHITE>(pos);
-        hint_common_access_for_perspective<BLACK>(pos);
+    void hint_common_access(const Position& pos, bool psqtOnly) const {
+        hint_common_access_for_perspective<WHITE>(pos, psqtOnly);
+        hint_common_access_for_perspective<BLACK>(pos, psqtOnly);
     }
 
    private:
     template<Color Perspective>
     [[nodiscard]] std::pair<StateInfo*, StateInfo*>
-    try_find_computed_accumulator(const Position& pos) const {
+    try_find_computed_accumulator(const Position& pos, bool psqtOnly) const {
         // Look for a usable accumulator of an earlier position. We keep track
         // of the estimated gain in terms of features to be added/subtracted.
         StateInfo *st = pos.state(), *next = nullptr;
         int        gain = FeatureSet::refresh_cost(pos);
-        while (st->previous && !(st->*accPtr).computed[Perspective])
+        while (st->previous
+               && (!(st->*accPtr).computedPSQT[Perspective]
+                   || (!psqtOnly && !(st->*accPtr).computed[Perspective])))
         {
             // This governs when a full feature refresh is needed and how many
             // updates are better than just one full refresh.
@@ -4918,7 +4936,8 @@ class FeatureTransformer {
     template<Color Perspective, size_t N>
     void update_accumulator_incremental(const Position& pos,
                                         StateInfo*      computed_st,
-                                        StateInfo*      states_to_update[N]) const {
+                                        StateInfo*      states_to_update[N],
+                                        bool            psqtOnly) const {
         static_assert(N > 0);
         assert(states_to_update[N - 1] == nullptr);
 
@@ -4954,7 +4973,8 @@ class FeatureTransformer {
 
             for (; i >= 0; --i)
             {
-                (states_to_update[i]->*accPtr).computed[Perspective] = true;
+                (states_to_update[i]->*accPtr).computed[Perspective]     = !psqtOnly;
+                (states_to_update[i]->*accPtr).computedPSQT[Perspective] = true;
 
                 const StateInfo* end_state = i == 0 ? computed_st : states_to_update[i - 1];
 
@@ -4974,31 +4994,34 @@ class FeatureTransformer {
         {
             assert(states_to_update[0]);
 
-            auto accIn =
-              reinterpret_cast<const vec_t*>(&(st->*accPtr).accumulation[Perspective][0]);
-            auto accOut = reinterpret_cast<vec_t*>(
-              &(states_to_update[0]->*accPtr).accumulation[Perspective][0]);
-
-            const IndexType offsetR0 = HalfDimensions * removed[0][0];
-            auto            columnR0 = reinterpret_cast<const vec_t*>(&weights[offsetR0]);
-            const IndexType offsetA  = HalfDimensions * added[0][0];
-            auto            columnA  = reinterpret_cast<const vec_t*>(&weights[offsetA]);
-
-            if (removed[0].size() == 1)
+            if (!psqtOnly)
             {
-                for (IndexType k = 0; k < HalfDimensions * sizeof(std::int16_t) / sizeof(vec_t);
-                     ++k)
-                    accOut[k] = vec_add_16(vec_sub_16(accIn[k], columnR0[k]), columnA[k]);
-            }
-            else
-            {
-                const IndexType offsetR1 = HalfDimensions * removed[0][1];
-                auto            columnR1 = reinterpret_cast<const vec_t*>(&weights[offsetR1]);
+                auto accIn =
+                  reinterpret_cast<const vec_t*>(&(st->*accPtr).accumulation[Perspective][0]);
+                auto accOut = reinterpret_cast<vec_t*>(
+                  &(states_to_update[0]->*accPtr).accumulation[Perspective][0]);
 
-                for (IndexType k = 0; k < HalfDimensions * sizeof(std::int16_t) / sizeof(vec_t);
-                     ++k)
-                    accOut[k] = vec_sub_16(vec_add_16(accIn[k], columnA[k]),
-                                           vec_add_16(columnR0[k], columnR1[k]));
+                const IndexType offsetR0 = HalfDimensions * removed[0][0];
+                auto            columnR0 = reinterpret_cast<const vec_t*>(&weights[offsetR0]);
+                const IndexType offsetA  = HalfDimensions * added[0][0];
+                auto            columnA  = reinterpret_cast<const vec_t*>(&weights[offsetA]);
+
+                if (removed[0].size() == 1)
+                {
+                    for (IndexType k = 0; k < HalfDimensions * sizeof(std::int16_t) / sizeof(vec_t);
+                         ++k)
+                        accOut[k] = vec_add_16(vec_sub_16(accIn[k], columnR0[k]), columnA[k]);
+                }
+                else
+                {
+                    const IndexType offsetR1 = HalfDimensions * removed[0][1];
+                    auto            columnR1 = reinterpret_cast<const vec_t*>(&weights[offsetR1]);
+
+                    for (IndexType k = 0; k < HalfDimensions * sizeof(std::int16_t) / sizeof(vec_t);
+                         ++k)
+                        accOut[k] = vec_sub_16(vec_add_16(accIn[k], columnA[k]),
+                                               vec_add_16(columnR0[k], columnR1[k]));
+                }
             }
 
             auto accPsqtIn =
@@ -5032,41 +5055,43 @@ class FeatureTransformer {
         }
         else
         {
-            for (IndexType j = 0; j < HalfDimensions / TileHeight; ++j)
-            {
-                // Load accumulator
-                auto accTileIn = reinterpret_cast<const vec_t*>(
-                  &(st->*accPtr).accumulation[Perspective][j * TileHeight]);
-                for (IndexType k = 0; k < NumRegs; ++k)
-                    acc[k] = vec_load(&accTileIn[k]);
-
-                for (IndexType i = 0; states_to_update[i]; ++i)
+            if (!psqtOnly)
+                for (IndexType j = 0; j < HalfDimensions / TileHeight; ++j)
                 {
-                    // Difference calculation for the deactivated features
-                    for (const auto index : removed[i])
-                    {
-                        const IndexType offset = HalfDimensions * index + j * TileHeight;
-                        auto            column = reinterpret_cast<const vec_t*>(&weights[offset]);
-                        for (IndexType k = 0; k < NumRegs; ++k)
-                            acc[k] = vec_sub_16(acc[k], column[k]);
-                    }
-
-                    // Difference calculation for the activated features
-                    for (const auto index : added[i])
-                    {
-                        const IndexType offset = HalfDimensions * index + j * TileHeight;
-                        auto            column = reinterpret_cast<const vec_t*>(&weights[offset]);
-                        for (IndexType k = 0; k < NumRegs; ++k)
-                            acc[k] = vec_add_16(acc[k], column[k]);
-                    }
-
-                    // Store accumulator
-                    auto accTileOut = reinterpret_cast<vec_t*>(
-                      &(states_to_update[i]->*accPtr).accumulation[Perspective][j * TileHeight]);
+                    // Load accumulator
+                    auto accTileIn = reinterpret_cast<const vec_t*>(
+                      &(st->*accPtr).accumulation[Perspective][j * TileHeight]);
                     for (IndexType k = 0; k < NumRegs; ++k)
-                        vec_store(&accTileOut[k], acc[k]);
+                        acc[k] = vec_load(&accTileIn[k]);
+
+                    for (IndexType i = 0; states_to_update[i]; ++i)
+                    {
+                        // Difference calculation for the deactivated features
+                        for (const auto index : removed[i])
+                        {
+                            const IndexType offset = HalfDimensions * index + j * TileHeight;
+                            auto column = reinterpret_cast<const vec_t*>(&weights[offset]);
+                            for (IndexType k = 0; k < NumRegs; ++k)
+                                acc[k] = vec_sub_16(acc[k], column[k]);
+                        }
+
+                        // Difference calculation for the activated features
+                        for (const auto index : added[i])
+                        {
+                            const IndexType offset = HalfDimensions * index + j * TileHeight;
+                            auto column = reinterpret_cast<const vec_t*>(&weights[offset]);
+                            for (IndexType k = 0; k < NumRegs; ++k)
+                                acc[k] = vec_add_16(acc[k], column[k]);
+                        }
+
+                        // Store accumulator
+                        auto accTileOut =
+                          reinterpret_cast<vec_t*>(&(states_to_update[i]->*accPtr)
+                                                      .accumulation[Perspective][j * TileHeight]);
+                        for (IndexType k = 0; k < NumRegs; ++k)
+                            vec_store(&accTileOut[k], acc[k]);
+                    }
                 }
-            }
 
             for (IndexType j = 0; j < PSQTBuckets / PsqtTileHeight; ++j)
             {
@@ -5108,8 +5133,10 @@ class FeatureTransformer {
 #else
         for (IndexType i = 0; states_to_update[i]; ++i)
         {
-            std::memcpy((states_to_update[i]->*accPtr).accumulation[Perspective],
-                        (st->*accPtr).accumulation[Perspective], HalfDimensions * sizeof(BiasType));
+            if (!psqtOnly)
+                std::memcpy((states_to_update[i]->*accPtr).accumulation[Perspective],
+                            (st->*accPtr).accumulation[Perspective],
+                            HalfDimensions * sizeof(BiasType));
 
             for (std::size_t k = 0; k < PSQTBuckets; ++k)
                 (states_to_update[i]->*accPtr).psqtAccumulation[Perspective][k] =
@@ -5120,10 +5147,12 @@ class FeatureTransformer {
             // Difference calculation for the deactivated features
             for (const auto index : removed[i])
             {
-                const IndexType offset = HalfDimensions * index;
-
-                for (IndexType j = 0; j < HalfDimensions; ++j)
-                    (st->*accPtr).accumulation[Perspective][j] -= weights[offset + j];
+                if (!psqtOnly)
+                {
+                    const IndexType offset = HalfDimensions * index;
+                    for (IndexType j = 0; j < HalfDimensions; ++j)
+                        (st->*accPtr).accumulation[Perspective][j] -= weights[offset + j];
+                }
 
                 for (std::size_t k = 0; k < PSQTBuckets; ++k)
                     (st->*accPtr).psqtAccumulation[Perspective][k] -=
@@ -5133,10 +5162,12 @@ class FeatureTransformer {
             // Difference calculation for the activated features
             for (const auto index : added[i])
             {
-                const IndexType offset = HalfDimensions * index;
-
-                for (IndexType j = 0; j < HalfDimensions; ++j)
-                    (st->*accPtr).accumulation[Perspective][j] += weights[offset + j];
+                if (!psqtOnly)
+                {
+                    const IndexType offset = HalfDimensions * index;
+                    for (IndexType j = 0; j < HalfDimensions; ++j)
+                        (st->*accPtr).accumulation[Perspective][j] += weights[offset + j];
+                }
 
                 for (std::size_t k = 0; k < PSQTBuckets; ++k)
                     (st->*accPtr).psqtAccumulation[Perspective][k] +=
@@ -5147,7 +5178,7 @@ class FeatureTransformer {
     }
 
     template<Color Perspective>
-    void update_accumulator_refresh(const Position& pos) const {
+    void update_accumulator_refresh(const Position& pos, bool psqtOnly) const {
 #ifdef VECTOR
         // Gcc-10.2 unnecessarily spills AVX2 registers if this array
         // is defined in the VECTOR code below, once in each branch
@@ -5158,32 +5189,34 @@ class FeatureTransformer {
         // Refresh the accumulator
         // Could be extracted to a separate function because it's done in 2 places,
         // but it's unclear if compilers would correctly handle register allocation.
-        auto& accumulator                 = pos.state()->*accPtr;
-        accumulator.computed[Perspective] = true;
+        auto& accumulator                     = pos.state()->*accPtr;
+        accumulator.computed[Perspective]     = !psqtOnly;
+        accumulator.computedPSQT[Perspective] = true;
         FeatureSet::IndexList active;
         FeatureSet::append_active_indices<Perspective>(pos, active);
 
 #ifdef VECTOR
-        for (IndexType j = 0; j < HalfDimensions / TileHeight; ++j)
-        {
-            auto biasesTile = reinterpret_cast<const vec_t*>(&biases[j * TileHeight]);
-            for (IndexType k = 0; k < NumRegs; ++k)
-                acc[k] = biasesTile[k];
-
-            for (const auto index : active)
+        if (!psqtOnly)
+            for (IndexType j = 0; j < HalfDimensions / TileHeight; ++j)
             {
-                const IndexType offset = HalfDimensions * index + j * TileHeight;
-                auto            column = reinterpret_cast<const vec_t*>(&weights[offset]);
+                auto biasesTile = reinterpret_cast<const vec_t*>(&biases[j * TileHeight]);
+                for (IndexType k = 0; k < NumRegs; ++k)
+                    acc[k] = biasesTile[k];
 
-                for (unsigned k = 0; k < NumRegs; ++k)
-                    acc[k] = vec_add_16(acc[k], column[k]);
+                for (const auto index : active)
+                {
+                    const IndexType offset = HalfDimensions * index + j * TileHeight;
+                    auto            column = reinterpret_cast<const vec_t*>(&weights[offset]);
+
+                    for (unsigned k = 0; k < NumRegs; ++k)
+                        acc[k] = vec_add_16(acc[k], column[k]);
+                }
+
+                auto accTile =
+                  reinterpret_cast<vec_t*>(&accumulator.accumulation[Perspective][j * TileHeight]);
+                for (unsigned k = 0; k < NumRegs; k++)
+                    vec_store(&accTile[k], acc[k]);
             }
-
-            auto accTile =
-              reinterpret_cast<vec_t*>(&accumulator.accumulation[Perspective][j * TileHeight]);
-            for (unsigned k = 0; k < NumRegs; k++)
-                vec_store(&accTile[k], acc[k]);
-        }
 
         for (IndexType j = 0; j < PSQTBuckets / PsqtTileHeight; ++j)
         {
@@ -5206,18 +5239,21 @@ class FeatureTransformer {
         }
 
 #else
-        std::memcpy(accumulator.accumulation[Perspective], biases,
-                    HalfDimensions * sizeof(BiasType));
+        if (!psqtOnly)
+            std::memcpy(accumulator.accumulation[Perspective], biases,
+                        HalfDimensions * sizeof(BiasType));
 
         for (std::size_t k = 0; k < PSQTBuckets; ++k)
             accumulator.psqtAccumulation[Perspective][k] = 0;
 
         for (const auto index : active)
         {
-            const IndexType offset = HalfDimensions * index;
-
-            for (IndexType j = 0; j < HalfDimensions; ++j)
-                accumulator.accumulation[Perspective][j] += weights[offset + j];
+            if (!psqtOnly)
+            {
+                const IndexType offset = HalfDimensions * index;
+                for (IndexType j = 0; j < HalfDimensions; ++j)
+                    accumulator.accumulation[Perspective][j] += weights[offset + j];
+            }
 
             for (std::size_t k = 0; k < PSQTBuckets; ++k)
                 accumulator.psqtAccumulation[Perspective][k] +=
@@ -5227,7 +5263,7 @@ class FeatureTransformer {
     }
 
     template<Color Perspective>
-    void hint_common_access_for_perspective(const Position& pos) const {
+    void hint_common_access_for_perspective(const Position& pos, bool psqtOnly) const {
 
         // Works like update_accumulator, but performs less work.
         // Updates ONLY the accumulator for pos.
@@ -5235,27 +5271,31 @@ class FeatureTransformer {
         // Look for a usable accumulator of an earlier position. We keep track
         // of the estimated gain in terms of features to be added/subtracted.
         // Fast early exit.
-        if ((pos.state()->*accPtr).computed[Perspective])
+        if ((pos.state()->*accPtr).computed[Perspective]
+            || (psqtOnly && (pos.state()->*accPtr).computedPSQT[Perspective]))
             return;
 
-        auto [oldest_st, _] = try_find_computed_accumulator<Perspective>(pos);
+        auto [oldest_st, _] = try_find_computed_accumulator<Perspective>(pos, psqtOnly);
 
-        if ((oldest_st->*accPtr).computed[Perspective])
+        if ((oldest_st->*accPtr).computed[Perspective]
+            || (psqtOnly && (oldest_st->*accPtr).computedPSQT[Perspective]))
         {
             // Only update current position accumulator to minimize work.
             StateInfo* states_to_update[2] = {pos.state(), nullptr};
-            update_accumulator_incremental<Perspective, 2>(pos, oldest_st, states_to_update);
+            update_accumulator_incremental<Perspective, 2>(pos, oldest_st, states_to_update,
+                                                           psqtOnly);
         }
         else
-            update_accumulator_refresh<Perspective>(pos);
+            update_accumulator_refresh<Perspective>(pos, psqtOnly);
     }
 
     template<Color Perspective>
-    void update_accumulator(const Position& pos) const {
+    void update_accumulator(const Position& pos, bool psqtOnly) const {
 
-        auto [oldest_st, next] = try_find_computed_accumulator<Perspective>(pos);
+        auto [oldest_st, next] = try_find_computed_accumulator<Perspective>(pos, psqtOnly);
 
-        if ((oldest_st->*accPtr).computed[Perspective])
+        if ((oldest_st->*accPtr).computed[Perspective]
+            || (psqtOnly && (oldest_st->*accPtr).computedPSQT[Perspective]))
         {
             if (next == nullptr)
                 return;
@@ -5268,12 +5308,11 @@ class FeatureTransformer {
             StateInfo* states_to_update[3] = {next, next == pos.state() ? nullptr : pos.state(),
                                               nullptr};
 
-            update_accumulator_incremental<Perspective, 3>(pos, oldest_st, states_to_update);
+            update_accumulator_incremental<Perspective, 3>(pos, oldest_st, states_to_update,
+                                                           psqtOnly);
         }
         else
-        {
-            update_accumulator_refresh<Perspective>(pos);
-        }
+            update_accumulator_refresh<Perspective>(pos, psqtOnly);
     }
 
     alignas(CacheLineSize) BiasType biases[HalfDimensions];
@@ -5325,7 +5364,10 @@ template<typename T>
 using LargePagePtr = std::unique_ptr<T, LargePageDeleter<T>>;
 
 template<NetSize Net_Size>
-Value evaluate(const Position& pos, bool adjusted = false, int* complexity = nullptr);
+Value evaluate(const Position& pos,
+               bool            adjusted   = false,
+               int*            complexity = nullptr,
+               bool            psqtOnly   = false);
 void  hint_common_parent_position(const Position& pos);
 
 std::optional<std::string> load_eval(std::istream& stream, NetSize netSize);
@@ -5491,11 +5533,12 @@ Value Eval::evaluate(const Position& pos, int optimism) {
 
     int  simpleEval = simple_eval(pos, pos.side_to_move());
     bool smallNet   = std::abs(simpleEval) > 1050;
+    bool psqtOnly   = std::abs(simpleEval) > 2500;
 
     int nnueComplexity;
 
-    Value nnue = smallNet ? NNUE::evaluate<NNUE::Small>(pos, true, &nnueComplexity)
-                          : NNUE::evaluate<NNUE::Big>(pos, true, &nnueComplexity);
+    Value nnue = smallNet ? NNUE::evaluate<NNUE::Small>(pos, true, &nnueComplexity, psqtOnly)
+                          : NNUE::evaluate<NNUE::Big>(pos, true, &nnueComplexity, false);
 
     // Blend optimism and eval with nnue complexity and material imbalance
     optimism += optimism * (nnueComplexity + std::abs(simpleEval - nnue)) / 512;
@@ -5585,7 +5628,7 @@ namespace Stockfish {
 namespace {
 
 // Version number or dev.
-constexpr std::string_view version = "16.1";
+constexpr std::string_view version = "dev";
 
 // Our fancy logging facility. The trick here is to replace cin.rdbuf() and
 // cout.rdbuf() with two Tie objects that tie cin and cout to a file stream. We
@@ -6857,10 +6900,14 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
     ++st->pliesFromNull;
 
     // Used by NNUE
-    st->accumulatorBig.computed[WHITE]     = st->accumulatorBig.computed[BLACK] =
-      st->accumulatorSmall.computed[WHITE] = st->accumulatorSmall.computed[BLACK] = false;
-    auto& dp                                                                      = st->dirtyPiece;
-    dp.dirty_num                                                                  = 1;
+    st->accumulatorBig.computed[WHITE]             = st->accumulatorBig.computed[BLACK] =
+      st->accumulatorBig.computedPSQT[WHITE]       = st->accumulatorBig.computedPSQT[BLACK] =
+        st->accumulatorSmall.computed[WHITE]       = st->accumulatorSmall.computed[BLACK] =
+          st->accumulatorSmall.computedPSQT[WHITE] = st->accumulatorSmall.computedPSQT[BLACK] =
+            false;
+
+    auto& dp     = st->dirtyPiece;
+    dp.dirty_num = 1;
 
     Color  us       = sideToMove;
     Color  them     = ~us;
@@ -7135,10 +7182,13 @@ void Position::do_null_move(StateInfo& newSt, TranspositionTable& tt) {
     newSt.previous = st;
     st             = &newSt;
 
-    st->dirtyPiece.dirty_num               = 0;
-    st->dirtyPiece.piece[0]                = NO_PIECE;  // Avoid checks in UpdateAccumulator()
-    st->accumulatorBig.computed[WHITE]     = st->accumulatorBig.computed[BLACK] =
-      st->accumulatorSmall.computed[WHITE] = st->accumulatorSmall.computed[BLACK] = false;
+    st->dirtyPiece.dirty_num                 = 0;
+    st->dirtyPiece.piece[0]                  = NO_PIECE;  // Avoid checks in UpdateAccumulator()
+    st->accumulatorBig.computed[WHITE]       = st->accumulatorBig.computed[BLACK] =
+      st->accumulatorBig.computedPSQT[WHITE] = st->accumulatorBig.computedPSQT[BLACK] =
+        st->accumulatorSmall.computed[WHITE] = st->accumulatorSmall.computed[BLACK] =
+          st->accumulatorSmall.computedPSQT[WHITE] = st->accumulatorSmall.computedPSQT[BLACK] =
+            false;
 
     if (st->epSquare != SQ_NONE)
     {
@@ -8621,20 +8671,17 @@ Value Search::Worker::search(
         && (tte->bound() & (ttValue >= beta ? BOUND_LOWER : BOUND_UPPER)))
     {
         // If ttMove is quiet, update move sorting heuristics on TT hit (~2 Elo)
-        if (ttMove)
+        if (ttMove && ttValue >= beta)
         {
-            if (ttValue >= beta)
-            {
-                // Bonus for a quiet ttMove that fails high (~2 Elo)
-                if (!ttCapture)
-                    update_quiet_stats(pos, ss, *this, ttMove, stat_bonus(depth));
+            // Bonus for a quiet ttMove that fails high (~2 Elo)
+            if (!ttCapture)
+                update_quiet_stats(pos, ss, *this, ttMove, stat_bonus(depth));
 
-                // Extra penalty for early quiet moves of
-                // the previous ply (~0 Elo on STC, ~2 Elo on LTC).
-                if (prevSq != SQ_NONE && (ss - 1)->moveCount <= 2 && !priorCapture)
-                    update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq,
-                                                  -stat_malus(depth + 1));
-            }
+            // Extra penalty for early quiet moves of
+            // the previous ply (~0 Elo on STC, ~2 Elo on LTC).
+            if (prevSq != SQ_NONE && (ss - 1)->moveCount <= 2 && !priorCapture)
+                update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq,
+                                              -stat_malus(depth + 1));
         }
 
         // Partial workaround for the graph history interaction problem
@@ -8769,13 +8816,11 @@ Value Search::Worker::search(
     }
 
     // Step 10. Internal iterative reductions (~9 Elo)
-    // For PV nodes without a ttMove, we decrease depth by 2,
-    // or by 4 if the current position is present in the TT and
-    // the stored depth is greater than or equal to the current depth.
-    // Use qsearch if depth <= 0.
+    // For PV nodes without a ttMove, we decrease depth by 3.
     if (PvNode && !ttMove)
-        depth -= 2 + 2 * (ss->ttHit && tte->depth() >= depth);
+        depth -= 3;
 
+    // Use qsearch if depth <= 0.
     if (depth <= 0)
         return qsearch<PV>(pos, ss, alpha, beta);
 
@@ -9014,7 +9059,7 @@ moves_loop:  // When in check, search starts here
 
                 // If the ttMove is assumed to fail high over current beta (~7 Elo)
                 else if (ttValue >= beta)
-                    extension = -2 - !PvNode;
+                    extension = -3;
 
                 // If we are on a cutNode but the ttMove is not assumed to fail high over current beta (~1 Elo)
                 else if (cutNode)
@@ -10032,6 +10077,7 @@ void ThreadPool::wait_for_search_finished() const {
 */
 
 #include <cassert>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -10061,6 +10107,17 @@ void TTEntry::save(
         value16   = int16_t(v);
         eval16    = int16_t(ev);
     }
+}
+
+uint8_t TTEntry::relative_age(const uint8_t generation8) const {
+    // Due to our packed storage format for generation and its cyclic
+    // nature we add GENERATION_CYCLE (256 is the modulus, plus what
+    // is needed to keep the unrelated lowest n bits from affecting
+    // the result) to calculate the entry age correctly even after
+    // generation8 overflows into the next cycle.
+
+    return (TranspositionTable::GENERATION_CYCLE + generation8 - genBound8)
+         & TranspositionTable::GENERATION_MASK;
 }
 
 // Sets the size of the transposition table,
@@ -10119,24 +10176,18 @@ TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
     for (int i = 0; i < ClusterSize; ++i)
         if (tte[i].key16 == key16 || !tte[i].depth8)
         {
-            tte[i].genBound8 =
-              uint8_t(generation8 | (tte[i].genBound8 & (GENERATION_DELTA - 1)));  // Refresh
+            constexpr uint8_t lowerBits = GENERATION_DELTA - 1;
 
-            return found = bool(tte[i].depth8), &tte[i];
+            // Refresh with new generation, keeping the lower bits the same.
+            tte[i].genBound8 = uint8_t(generation8 | (tte[i].genBound8 & lowerBits));
+            return found     = bool(tte[i].depth8), &tte[i];
         }
 
     // Find an entry to be replaced according to the replacement strategy
     TTEntry* replace = tte;
     for (int i = 1; i < ClusterSize; ++i)
-        // Due to our packed storage format for generation and its cyclic
-        // nature we add GENERATION_CYCLE (256 is the modulus, plus what
-        // is needed to keep the unrelated lowest n bits from affecting
-        // the result) to calculate the entry age correctly even after
-        // generation8 overflows into the next cycle.
-        if (replace->depth8
-              - ((GENERATION_CYCLE + generation8 - replace->genBound8) & GENERATION_MASK)
-            > tte[i].depth8
-                - ((GENERATION_CYCLE + generation8 - tte[i].genBound8) & GENERATION_MASK))
+        if (replace->depth8 - replace->relative_age(generation8)
+            > tte[i].depth8 - tte[i].relative_age(generation8))
             replace = &tte[i];
 
     return found = false, replace;
@@ -10144,6 +10195,7 @@ TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
 
 // Returns an approximation of the hashtable
 // occupation during a search. The hash is x permill full, as per UCI protocol.
+// Only counts entries which match the current generation.
 int TranspositionTable::hashfull() const {
     int cnt = 0;
     for (int i = 0; i < 1000 / ClusterSize; ++i)
@@ -10732,8 +10784,11 @@ Move UCI::to_move(const Position& pos, std::string& str) {
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <optional>
+#include <sstream>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 
@@ -10875,16 +10930,16 @@ write_parameters(std::ostream& stream, NetSize netSize, const std::string& netDe
 
 void hint_common_parent_position(const Position& pos) {
 
-    int simpleEval = simple_eval(pos, pos.side_to_move());
-    if (std::abs(simpleEval) > 1050)
-        featureTransformerSmall->hint_common_access(pos);
+    int simpleEvalAbs = std::abs(simple_eval(pos, pos.side_to_move()));
+    if (simpleEvalAbs > 1050)
+        featureTransformerSmall->hint_common_access(pos, simpleEvalAbs > 2500);
     else
-        featureTransformerBig->hint_common_access(pos);
+        featureTransformerBig->hint_common_access(pos, false);
 }
 
 // Evaluation function. Perform differential calculation.
 template<NetSize Net_Size>
-Value evaluate(const Position& pos, bool adjusted, int* complexity) {
+Value evaluate(const Position& pos, bool adjusted, int* complexity, bool psqtOnly) {
 
     // We manually align the arrays on the stack because with gcc < 9.3
     // overaligning stack variables with alignas() doesn't work correctly.
@@ -10909,15 +10964,19 @@ Value evaluate(const Position& pos, bool adjusted, int* complexity) {
 
     ASSERT_ALIGNED(transformedFeatures, alignment);
 
-    const int  bucket     = (pos.count<ALL_PIECES>() - 1) / 4;
-    const auto psqt       = Net_Size == Small
-                            ? featureTransformerSmall->transform(pos, transformedFeatures, bucket)
-                            : featureTransformerBig->transform(pos, transformedFeatures, bucket);
-    const auto positional = Net_Size == Small ? networkSmall[bucket]->propagate(transformedFeatures)
-                                              : networkBig[bucket]->propagate(transformedFeatures);
+    const int  bucket = (pos.count<ALL_PIECES>() - 1) / 4;
+    const auto psqt =
+      Net_Size == Small
+        ? featureTransformerSmall->transform(pos, transformedFeatures, bucket, psqtOnly)
+        : featureTransformerBig->transform(pos, transformedFeatures, bucket, psqtOnly);
+
+    const auto positional =
+      !psqtOnly ? (Net_Size == Small ? networkSmall[bucket]->propagate(transformedFeatures)
+                                     : networkBig[bucket]->propagate(transformedFeatures))
+                : 0;
 
     if (complexity)
-        *complexity = std::abs(psqt - positional) / OutputScale;
+        *complexity = !psqtOnly ? std::abs(psqt - positional) / OutputScale : 0;
 
     // Give more value to positional evaluation when adjusted flag is set
     if (adjusted)
@@ -10927,8 +10986,18 @@ Value evaluate(const Position& pos, bool adjusted, int* complexity) {
         return static_cast<Value>((psqt + positional) / OutputScale);
 }
 
-template Value evaluate<Big>(const Position& pos, bool adjusted, int* complexity);
-template Value evaluate<Small>(const Position& pos, bool adjusted, int* complexity);
+template Value evaluate<Big>(const Position& pos, bool adjusted, int* complexity, bool psqtOnly);
+template Value evaluate<Small>(const Position& pos, bool adjusted, int* complexity, bool psqtOnly);
+
+struct NnueEvalTrace {
+    static_assert(LayerStacks == PSQTBuckets);
+
+    Value       psqt[LayerStacks];
+    Value       positional[LayerStacks];
+    std::size_t correctBucket;
+};
+
+constexpr std::string_view PieceToChar(" PNBRQK  pnbrqk");
 
 // Load eval, from a file stream or a memory stream
 std::optional<std::string> load_eval(std::istream& stream, NetSize netSize) {
