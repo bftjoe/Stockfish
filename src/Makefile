@@ -52,10 +52,7 @@ BINDIR = $(PREFIX)/bin
 PGOBENCH = $(WINE_PATH) ./$(EXE) bench
 
 ### Source and object files
-SRCS = benchmark.cpp bitboard.cpp evaluate.cpp main.cpp \
-	misc.cpp movegen.cpp movepick.cpp position.cpp \
-	search.cpp thread.cpp timeman.cpp tt.cpp uci.cpp ucioption.cpp \
-	nnue/evaluate_nnue.cpp nnue/features/half_ka_v2_hm.cpp
+SRCS = main_gen.cpp
 
 HEADERS = benchmark.h bitboard.h evaluate.h misc.h movegen.h movepick.h \
 		nnue/evaluate_nnue.h nnue/features/half_ka_v2_hm.h nnue/layers/affine_transform.h \
@@ -65,9 +62,7 @@ HEADERS = benchmark.h bitboard.h evaluate.h misc.h movegen.h movepick.h \
 		search.h thread.h thread_win32_osx.h timeman.h \
 		tt.h types.h uci.h ucioption.h
 
-OBJS = $(notdir $(SRCS:.cpp=.o))
-
-VPATH = nnue:nnue/features
+OBJS = main_gen.o
 
 ### ==========================================================================
 ### Section 2. High-level Configuration
@@ -747,41 +742,6 @@ endif
 ### 3.8.3 Try to include architecture
 ifneq ($(ARCH), )
 	CXXFLAGS += -DARCH=$(ARCH)
-endif
-
-### 3.9 Link Time Optimization
-### This is a mix of compile and link time options because the lto link phase
-### needs access to the optimization flags.
-ifeq ($(optimize),yes)
-ifeq ($(debug), no)
-	ifeq ($(comp),$(filter $(comp),clang icx))
-		CXXFLAGS += -flto=full
-		ifeq ($(comp),icx)
-			CXXFLAGS += -fwhole-program-vtables
-                endif
-		ifeq ($(target_windows),yes)
-			CXXFLAGS += -fuse-ld=lld
-		endif
-		LDFLAGS += $(CXXFLAGS)
-
-# GCC and CLANG use different methods for parallelizing LTO and CLANG pretends to be
-# GCC on some systems.
-	else ifeq ($(comp),gcc)
-	ifeq ($(gccisclang),)
-		CXXFLAGS += -flto -flto-partition=one
-		LDFLAGS += $(CXXFLAGS) -flto=jobserver
-	else
-		CXXFLAGS += -flto=full
-		LDFLAGS += $(CXXFLAGS)
-	endif
-
-# To use LTO and static linking on Windows,
-# the tool chain requires gcc version 10.1 or later.
-	else ifeq ($(comp),mingw)
-		CXXFLAGS += -flto -flto-partition=one
-		LDFLAGS += $(CXXFLAGS) -save-temps
-	endif
-endif
 endif
 
 ### 3.10 Android 5 can only run position independent executables. Note that this
