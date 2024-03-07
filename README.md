@@ -8,6 +8,7 @@ This code is alpha status right now, and is intended for experiment/testing only
 * The time control is only checked every 1024 nodes (up from 512), which may result in more timeouts if the time control is short.
 * The search is wider than upstream.
 * Single file build for quicker compiles.
+* Most reductions/extensions are removed.
 
 ## Future plans
 
@@ -16,6 +17,7 @@ This code is alpha status right now, and is intended for experiment/testing only
 * Persistent hash table
 * Implement API option
 * Rename
+* Improve PGO by using UCI gameplay commands instead of bench
 
 ## Overview
 
