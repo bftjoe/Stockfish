@@ -30,18 +30,7 @@ namespace Stockfish {
 
 TimePoint TimeManagement::optimum() const { return optimumTime; }
 TimePoint TimeManagement::maximum() const { return maximumTime; }
-TimePoint TimeManagement::elapsed(size_t nodes) const {
-    return useNodesTime ? TimePoint(nodes) : now() - startTime;
-}
-
-void TimeManagement::clear() {
-    availableNodes = 0;  // When in 'nodes as time' mode
-}
-
-void TimeManagement::advance_nodes_time(std::int64_t nodes) {
-    assert(useNodesTime);
-    availableNodes += nodes;
-}
+TimePoint TimeManagement::elapsed() const { return now() - startTime; }
 
 // Called at the beginning of the search and calculates
 // the bounds of time allowed for the current game ply. We currently support:

@@ -1,3 +1,0 @@
-#!/bin/bash
-quom main.cpp main_gen.cpp
-make profile-build

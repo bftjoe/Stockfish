@@ -1,0 +1,9 @@
+#!/bin/bash
+#below line commented out because it only needs to run once and has already been run
+guard2once -r .
+rm -rf build
+cp -r src build
+cd build
+quom main.cpp main_gen.cpp
+make profile-build
+cp main_gen.cpp ../src

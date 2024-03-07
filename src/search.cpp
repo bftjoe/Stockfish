@@ -304,7 +304,7 @@ void Search::Worker::iterative_deepening() {
 
             if (mainThread
                 && (threads.stop || pvIdx + 1 == multiPV
-                    || mainThread->tm.elapsed(threads.nodes_searched()) > 3000)
+                    || mainThread->tm.elapsed() > 3000)
                 // A thread that aborted search can have mated-in/TB-loss PV and score
                 // that cannot be trusted, i.e. it can be delayed or refuted if we would have
                 // had time to fully search other root-moves. Thus we suppress this output and
@@ -369,14 +369,14 @@ void Search::Worker::iterative_deepening() {
                 totalTime = std::min(500.0, totalTime);
 
             if (completedDepth >= 10 && nodesEffort >= 95
-                && mainThread->tm.elapsed(threads.nodes_searched()) > totalTime * 3 / 4
+                && mainThread->tm.elapsed() > totalTime * 3 / 4
                 && !mainThread->ponder)
             {
                 threads.stop = true;
             }
 
             // Stop the search if we have exceeded the totalTime
-            if (mainThread->tm.elapsed(threads.nodes_searched()) > totalTime)
+            if (mainThread->tm.elapsed() > totalTime)
             {
                 // If we are allowed to ponder do not stop the search now but
                 // keep pondering until the GUI sends "ponderhit" or "stop".
@@ -386,7 +386,7 @@ void Search::Worker::iterative_deepening() {
                     threads.stop = true;
             }
             else if (!mainThread->ponder
-                     && mainThread->tm.elapsed(threads.nodes_searched()) > totalTime * 0.50)
+                     && mainThread->tm.elapsed() > totalTime * 0.50)
                 threads.increaseDepth = false;
             else
                 threads.increaseDepth = true;
@@ -414,9 +414,6 @@ void Search::Worker::clear() {
             for (auto& to : continuationHistory[inCheck][c])
                 for (auto& h : to)
                     h->fill(-71);
-
-    for (size_t i = 1; i < reductions.size(); ++i)
-        reductions[i] = int((18.79 + std::log(size_t(options["Threads"])) / 2) * std::log(i));
 }
 
 
@@ -453,7 +450,7 @@ Value Search::Worker::search(
     TTEntry* tte;
     Key      posKey;
     Move     ttMove, move, excludedMove, bestMove;
-    Depth    extension, newDepth;
+    Depth    newDepth;
     Value    bestValue, value, ttValue, eval, maxValue, probCutBeta;
     bool     givesCheck, improving, priorCapture;
     bool     capture, moveCountPruning, ttCapture;
@@ -500,7 +497,6 @@ Value Search::Worker::search(
     (ss + 1)->excludedMove = bestMove = Move::none();
     (ss + 2)->killers[0] = (ss + 2)->killers[1] = Move::none();
     (ss + 2)->cutoffCnt                         = 0;
-    ss->multipleExtensions                      = (ss - 1)->multipleExtensions;
     Square prevSq = ((ss - 1)->currentMove).is_ok() ? ((ss - 1)->currentMove).to_sq() : SQ_NONE;
     ss->statScore = 0;
 
@@ -606,17 +602,6 @@ Value Search::Worker::search(
     improving = (ss - 2)->staticEval != VALUE_NONE
                 ? ss->staticEval > (ss - 2)->staticEval
                 : (ss - 4)->staticEval != VALUE_NONE && ss->staticEval > (ss - 4)->staticEval;
-
-    // Step 7. Razoring (~1 Elo)
-    // If eval is really low check with qsearch if it can exceed alpha, if it can't,
-    // return a fail low.
-    // Adjust razor margin according to cutoffCnt. (~1 Elo)
-    if (eval < alpha - 438 - (332 - 154 * ((ss + 1)->cutoffCnt > 3)) * depth * depth)
-    {
-        value = qsearch<NonPV>(pos, ss, alpha - 1, alpha);
-        if (value < alpha)
-            return value;
-    }
 
     // Step 8. Futility pruning: child node (~40 Elo)
     // The depth condition is important for mate finding.
@@ -778,15 +763,9 @@ moves_loop:  // When in check, search starts here
 
         ss->moveCount = ++moveCount;
 
-        if (rootNode && is_mainthread()
-            && main_manager()->tm.elapsed(threads.nodes_searched()) > 3000)
-            sync_cout << "info depth " << depth << " currmove "
-                      << UCI::move(move, pos.is_chess960()) << " currmovenumber "
-                      << moveCount + thisThread->pvIdx << sync_endl;
         if (PvNode)
             (ss + 1)->pv = nullptr;
 
-        extension  = 0;
         capture    = pos.capture_stage(move);
         movedPiece = pos.moved_piece(move);
         givesCheck = pos.gives_check(move);
@@ -794,9 +773,7 @@ moves_loop:  // When in check, search starts here
         // Calculate new depth for this move
         newDepth = depth - 1;
 
-        int delta = beta - alpha;
-
-        Depth r = reduction(improving, depth, moveCount, delta);
+        Depth r = 0;
 
         // Step 14. Pruning at shallow depth (~120 Elo).
         // Depth conditions are important for mate finding.
@@ -857,84 +834,6 @@ moves_loop:  // When in check, search starts here
                     continue;
             }
         }
-
-        // Step 15. Extensions (~100 Elo)
-        // We take care to not overdo to avoid search getting stuck.
-        if (ss->ply < thisThread->rootDepth * 2)
-        {
-            // Singular extension search (~94 Elo). If all moves but one fail low on a
-            // search of (alpha-s, beta-s), and just one fails high on (alpha, beta),
-            // then that move is singular and should be extended. To verify this we do
-            // a reduced search on the position excluding the ttMove and if the result
-            // is lower than ttValue minus a margin, then we will extend the ttMove.
-
-            // Note: the depth margin and singularBeta margin are known for having non-linear
-            // scaling. Their values are optimized to time controls of 180+1.8 and longer
-            // so changing them requires tests at these types of time controls.
-            // Recursive singular search is avoided.
-            if (!rootNode && move == ttMove && !excludedMove
-                && depth >= 4 - (thisThread->completedDepth > 30) + ss->ttPv
-                && std::abs(ttValue) < VALUE_TB_WIN_IN_MAX_PLY && (tte->bound() & BOUND_LOWER)
-                && tte->depth() >= depth - 3)
-            {
-                Value singularBeta  = ttValue - (60 + 54 * (ss->ttPv && !PvNode)) * depth / 64;
-                Depth singularDepth = newDepth / 2;
-
-                ss->excludedMove = move;
-                value =
-                  search<NonPV>(pos, ss, singularBeta - 1, singularBeta, singularDepth, cutNode);
-                ss->excludedMove = Move::none();
-
-                if (value < singularBeta)
-                {
-                    extension = 1;
-
-                    // We make sure to limit the extensions in some way to avoid a search explosion
-                    if (!PvNode && ss->multipleExtensions <= 16)
-                    {
-                        extension = 2 + (value < singularBeta - 78 && !ttCapture);
-                        depth += depth < 16;
-                    }
-                }
-
-                // Multi-cut pruning
-                // Our ttMove is assumed to fail high based on the bound of the TT entry,
-                // and if after excluding the ttMove with a reduced search we fail high over the original beta,
-                // we assume this expected cut-node is not singular (multiple moves fail high),
-                // and we can prune the whole subtree by returning a softbound.
-                else if (singularBeta >= beta)
-                    return singularBeta;
-
-                // Negative extensions
-                // If other moves failed high over (ttValue - margin) without the ttMove on a reduced search,
-                // but we cannot do multi-cut because (ttValue - margin) is lower than the original beta,
-                // we do not know if the ttMove is singular or can do a multi-cut,
-                // so we reduce the ttMove in favor of other moves based on some conditions:
-
-                // If the ttMove is assumed to fail high over current beta (~7 Elo)
-                else if (ttValue >= beta)
-                    extension = -3;
-
-                // If we are on a cutNode but the ttMove is not assumed to fail high over current beta (~1 Elo)
-                else if (cutNode)
-                    extension = -2;
-
-                // If the ttMove is assumed to fail low over the value of the reduced search (~1 Elo)
-                else if (ttValue <= value)
-                    extension = -1;
-            }
-
-            // Recapture extensions (~1 Elo)
-            else if (PvNode && move == ttMove && move.to_sq() == prevSq
-                     && thisThread->captureHistory[movedPiece][move.to_sq()]
-                                                  [type_of(pos.piece_on(move.to_sq()))]
-                          > 4394)
-                extension = 1;
-        }
-
-        // Add extension to new depth
-        newDepth += extension;
-        ss->multipleExtensions = (ss - 1)->multipleExtensions + (extension >= 2);
 
         // Speculative prefetch as early as possible
         prefetch(tt.first_entry(pos.key_after(move)));
@@ -1465,11 +1364,6 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta,
     return bestValue;
 }
 
-Depth Search::Worker::reduction(bool i, Depth d, int mn, int delta) {
-    int reductionScale = reductions[d] * reductions[mn];
-    return (reductionScale + 1118 - delta * 793 / rootDelta) / 1024 + (!i && reductionScale > 863);
-}
-
 namespace {
 // Adjusts a mate or TB score from "plies to mate from the root"
 // to "plies to mate from the current position". Standard scores are unchanged.
@@ -1645,9 +1539,8 @@ void SearchManager::check_time(Search::Worker& worker) {
     if (--callsCnt > 0)
         return;
 
-    // When using nodes, ensure checking rate is not lower than 0.1% of nodes
     callsCnt = 1024;
-    TimePoint elapsed = tm.elapsed(worker.threads.nodes_searched());
+    TimePoint elapsed = tm.elapsed();
 
     // We should not stop pondering until told so by the GUI
     if (ponder)
@@ -1673,7 +1566,7 @@ std::string SearchManager::pv(const Search::Worker&     worker,
     const auto& rootMoves = worker.rootMoves;
     const auto& pos       = worker.rootPos;
     size_t      pvIdx     = worker.pvIdx;
-    TimePoint   time      = tm.elapsed(nodes) + 1;
+    TimePoint   time      = tm.elapsed() + 1;
     size_t      multiPV   = std::min(size_t(worker.options["MultiPV"]), rootMoves.size());
 
     for (size_t i = 0; i < multiPV; ++i)

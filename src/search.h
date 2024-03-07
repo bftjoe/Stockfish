@@ -64,7 +64,6 @@ struct Stack {
     bool            inCheck;
     bool            ttPv;
     bool            ttHit;
-    int             multipleExtensions;
     int             cutoffCnt;
 };
 
@@ -173,8 +172,7 @@ class Worker {
    public:
     Worker(SharedState&, std::unique_ptr<ISearchManager>, size_t);
 
-    // Called at instantiation to initialize Reductions tables
-    // Reset histories, usually before a new game
+    // Called at instantiation to reset histories, usually before a new game
     void clear();
 
     // Called when the program receives the UCI 'go' command.
@@ -202,8 +200,6 @@ class Worker {
     template<NodeType nodeType>
     Value qsearch(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth = 0);
 
-    Depth reduction(bool i, Depth d, int mn, int delta);
-
     // Get a pointer to the search manager, only allowed to be called by the
     // main thread.
     SearchManager* main_manager() const {
@@ -228,9 +224,6 @@ class Worker {
     Value     rootDelta;
 
     size_t thread_idx;
-
-    // Reductions lookup table initialized at startup
-    std::array<int, MAX_PLY> reductions;  // [depth or moveNumber]
 
     // The main thread has a SearchManager, the others have a NullSearchManager
     std::unique_ptr<ISearchManager> manager;

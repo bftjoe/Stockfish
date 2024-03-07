@@ -1,33 +1,21 @@
-<div align="center">
+# Changes from Stockfish
 
-  [![Stockfish][stockfish128-logo]][website-link]
+This code is alpha status right now, and is intended for experiment/testing only, not production use.
 
-  <h3>Stockfish</h3>
+* This fork of Stockfish is not UCI compliant: removed movestogo time control and go mate, etc. 
+* Removed tune and most debug code, including perft
+* Removed skill level and tablebase code
+* The time control is only checked every 1024 nodes (up from 512), which may result in more timeouts if the time control is short.
+* The search is wider than upstream.
+* Single file build for quicker compiles.
 
-  A free and strong UCI chess engine.
-  <br>
-  <strong>[Explore Stockfish docs »][wiki-link]</strong>
-  <br>
-  <br>
-  [Report bug][issue-link]
-  ·
-  [Open a discussion][discussions-link]
-  ·
-  [Discord][discord-link]
-  ·
-  [Blog][website-blog-link]
+## Future plans
 
-  [![Build][build-badge]][build-link]
-  [![License][license-badge]][license-link]
-  <br>
-  [![Release][release-badge]][release-link]
-  [![Commits][commits-badge]][commits-link]
-  <br>
-  [![Website][website-badge]][website-link]
-  [![Fishtest][fishtest-badge]][fishtest-link]
-  [![Discord][discord-badge]][discord-link]
-
-</div>
+* Switch to PGM index for hash table (reduce hash collisions & memory footprint)
+* Switch to best node search
+* Persistent hash table
+* Implement API option
+* Rename
 
 ## Overview
 
