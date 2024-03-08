@@ -811,7 +811,7 @@ Value evaluate(const Position& pos, int optimism);
 // The default net name MUST follow the format nn-[SHA256 first 12 digits].nnue
 // for the build process (profile-build and fishtest) to work. Do not change the
 // name of the macro, as it is used in the Makefile.
-#define EvalFileDefaultNameBig "nn-b1a57edbea57.nnue"
+#define EvalFileDefaultNameBig "nn-1ceb1ade0001.nnue"
 #define EvalFileDefaultNameSmall "nn-baff1ede1f90.nnue"
 
 struct EvalFile {
@@ -8110,27 +8110,27 @@ void TimeManagement::init(Search::LimitsType& limits,
                                                   - moveOverhead * (2 + mtg));
 
     // x basetime (+ z increment)
-    // If there is a healthy increment, timeLeft can exceed actual available
-    // game time for the current move, so also cap to 20% of available game time.
+    // If there is a healthy increment, timeLeft can exceed the actual available
+    // game time for the current move, so also cap to a percentage of available game time.
     {
         // Use extra time with larger increments
-        double optExtra = std::clamp(1.0 + 12.5 * limits.inc[us] / limits.time[us], 1.0, 1.11);
+        double optExtra = limits.inc[us] < 500 ? 1.0 : 1.13;
 
         // Calculate time constants based on current time left.
         double optConstant =
-          std::min(0.00334 + 0.0003 * std::log10(limits.time[us] / 1000.0), 0.0049);
-        double maxConstant = std::max(3.4 + 3.0 * std::log10(limits.time[us] / 1000.0), 2.76);
+          std::min(0.00308 + 0.000319 * std::log10(limits.time[us] / 1000.0), 0.00506);
+        double maxConstant = std::max(3.39 + 3.01 * std::log10(limits.time[us] / 1000.0), 2.93);
 
-        optScale = std::min(0.0120 + std::pow(ply + 3.1, 0.44) * optConstant,
-                            0.21 * limits.time[us] / double(timeLeft))
+        optScale = std::min(0.0122 + std::pow(ply + 2.95, 0.462) * optConstant,
+                            0.213 * limits.time[us] / double(timeLeft))
                  * optExtra;
-        maxScale = std::min(6.9, maxConstant + ply / 12.2);
+        maxScale = std::min(6.64, maxConstant + ply / 12.0);
     }
 
     // Limit the maximum possible time for this move
     optimumTime = TimePoint(optScale * timeLeft);
     maximumTime =
-      TimePoint(std::min(0.84 * limits.time[us] - moveOverhead, maxScale * optimumTime)) - 10;
+      TimePoint(std::min(0.825 * limits.time[us] - moveOverhead, maxScale * optimumTime)) - 10;
 
     if (options["Ponder"])
         optimumTime += optimumTime / 4;
@@ -8175,9 +8175,12 @@ using namespace Search;
 namespace {
 
 // Futility margin
-Value futility_margin(Depth d, bool noTtCutNode, bool improving) {
-    Value futilityMult = 117 - 44 * noTtCutNode;
-    return (futilityMult * d - 3 * futilityMult / 2 * improving);
+Value futility_margin(Depth d, bool noTtCutNode, bool improving, bool oppWorsening) {
+    Value futilityMult       = 117 - 44 * noTtCutNode;
+    Value improvingDeduction = 3 * improving * futilityMult / 2;
+    Value worseningDeduction = (331 + 45 * improving) * oppWorsening * futilityMult / 1024;
+
+    return futilityMult * d - improvingDeduction - worseningDeduction;
 }
 
 constexpr int futility_move_count(bool improving, Depth depth) {
@@ -8474,15 +8477,15 @@ void Search::Worker::iterative_deepening() {
             int  nodesEffort = effort[bestmove.from_sq()][bestmove.to_sq()] * 100
                             / std::max(size_t(1), size_t(nodes));
 
-            double fallingEval = (66 + 14 * (mainThread->bestPreviousAverageScore - bestValue)
-                                  + 6 * (mainThread->iterValue[iterIdx] - bestValue))
-                               / 616.6;
-            fallingEval = std::clamp(fallingEval, 0.51, 1.51);
+            double fallingEval = (1067 + 223 * (mainThread->bestPreviousAverageScore - bestValue)
+                                  + 97 * (mainThread->iterValue[iterIdx] - bestValue))
+                               / 10000.0;
+            fallingEval = std::clamp(fallingEval, 0.580, 1.667);
 
             // If the bestMove is stable over several iterations, reduce time accordingly
-            timeReduction    = lastBestMoveDepth + 8 < completedDepth ? 1.56 : 0.69;
-            double reduction = (1.4 + mainThread->previousTimeReduction) / (2.17 * timeReduction);
-            double bestMoveInstability = 1 + 1.79 * totBestMoveChanges / threads.size();
+            timeReduction    = lastBestMoveDepth + 8 < completedDepth ? 1.495 : 0.687;
+            double reduction = (1.48 + mainThread->previousTimeReduction) / (2.17 * timeReduction);
+            double bestMoveInstability = 1 + 1.88 * totBestMoveChanges / threads.size();
 
             double totalTime =
               mainThread->tm.optimum() * fallingEval * reduction * bestMoveInstability;
@@ -8491,8 +8494,8 @@ void Search::Worker::iterative_deepening() {
             if (rootMoves.size() == 1)
                 totalTime = std::min(500.0, totalTime);
 
-            if (completedDepth >= 10 && nodesEffort >= 95
-                && mainThread->tm.elapsed() > totalTime * 3 / 4
+            if (completedDepth >= 10 && nodesEffort >= 97
+                && mainThread->tm.elapsed() > totalTime * 0.739
                 && !mainThread->ponder)
             {
                 threads.stop = true;
@@ -8509,7 +8512,7 @@ void Search::Worker::iterative_deepening() {
                     threads.stop = true;
             }
             else if (!mainThread->ponder
-                     && mainThread->tm.elapsed() > totalTime * 0.50)
+                     && mainThread->tm.elapsed() > totalTime * 0.506)
                 threads.increaseDepth = false;
             else
                 threads.increaseDepth = true;
@@ -8574,7 +8577,7 @@ Value Search::Worker::search(
     Move     ttMove, move, excludedMove, bestMove;
     Depth    newDepth;
     Value    bestValue, value, ttValue, eval, maxValue, probCutBeta;
-    bool     givesCheck, improving, priorCapture;
+    bool     givesCheck, improving, priorCapture, opponentWorsening;
     bool     capture, moveCountPruning, ttCapture;
     Piece    movedPiece;
     int      moveCount, captureCount, quietCount;
@@ -8650,7 +8653,7 @@ Value Search::Worker::search(
                 update_quiet_stats(pos, ss, *this, ttMove, stat_bonus(depth));
 
             // Extra penalty for early quiet moves of
-            // the previous ply (~0 Elo on STC, ~2 Elo on LTC).
+            // the previous ply (~1 Elo on STC, ~2 Elo on LTC)
             if (prevSq != SQ_NONE && (ss - 1)->moveCount <= 2 && !priorCapture)
                 update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq,
                                               -stat_malus(depth + 1));
@@ -8725,10 +8728,12 @@ Value Search::Worker::search(
                 ? ss->staticEval > (ss - 2)->staticEval
                 : (ss - 4)->staticEval != VALUE_NONE && ss->staticEval > (ss - 4)->staticEval;
 
+    opponentWorsening = ss->staticEval + (ss - 1)->staticEval > 2 && (depth != 2 || !improving);
+
     // Step 8. Futility pruning: child node (~40 Elo)
     // The depth condition is important for mate finding.
     if (!ss->ttPv && depth < 11
-        && eval - futility_margin(depth, cutNode && !ss->ttHit, improving)
+        && eval - futility_margin(depth, cutNode && !ss->ttHit, improving, opponentWorsening)
                - (ss - 1)->statScore / 314
              >= beta
         && eval >= beta && eval < 30016  // smaller than TB wins
@@ -8983,7 +8988,7 @@ moves_loop:  // When in check, search starts here
         if (ttCapture)
             r++;
 
-        // Decrease reduction for PvNodes (~3 Elo)
+        // Decrease reduction for PvNodes (~0 Elo on STC, ~2 Elo on LTC)
         if (PvNode)
             r--;
 
@@ -9045,7 +9050,7 @@ moves_loop:  // When in check, search starts here
         // Step 18. Full-depth search when LMR is skipped
         else if (!PvNode || moveCount > 1)
         {
-            // Increase reduction if ttMove is not present (~1 Elo)
+            // Increase reduction if ttMove is not present (~6 Elo)
             if (!ttMove)
                 r += 2;
 

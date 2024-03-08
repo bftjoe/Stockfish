@@ -371,7 +371,7 @@ void Search::Worker::iterative_deepening() {
                 totalTime = std::min(500.0, totalTime);
 
             if (completedDepth >= 10 && nodesEffort >= 97
-                && mainThread->tm.elapsed(threads.nodes_searched()) > totalTime * 0.739
+                && mainThread->tm.elapsed() > totalTime * 0.739
                 && !mainThread->ponder)
             {
                 threads.stop = true;
@@ -604,6 +604,8 @@ Value Search::Worker::search(
     improving = (ss - 2)->staticEval != VALUE_NONE
                 ? ss->staticEval > (ss - 2)->staticEval
                 : (ss - 4)->staticEval != VALUE_NONE && ss->staticEval > (ss - 4)->staticEval;
+
+    opponentWorsening = ss->staticEval + (ss - 1)->staticEval > 2 && (depth != 2 || !improving);
 
     // Step 8. Futility pruning: child node (~40 Elo)
     // The depth condition is important for mate finding.
