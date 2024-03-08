@@ -9,6 +9,8 @@ This code is alpha status right now, and is intended for experiment/testing only
 * The search is wider than upstream.
 * Single file build for quicker compiles.
 * Most reductions/extensions are removed.
+* Increased minimum hash size to 32MB.
+* Uses multi threaded bench for PGO builds
 
 ## Future plans
 

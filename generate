@@ -1,5 +1,5 @@
 #!/bin/bash
-#below line commented out because it only needs to run once and has already been run
+#below line technically only needs to run once
 guard2once -r .
 rm -rf build
 cp -r src build
