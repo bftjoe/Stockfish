@@ -54,17 +54,17 @@ namespace Search {
 struct Stack {
     Move*           pv;
     PieceToHistory* continuationHistory;
-    int             ply;
     Move            currentMove;
     Move            excludedMove;
     Move            killers[2];
     Value           staticEval;
     int             statScore;
-    int             moveCount;
-    bool            inCheck;
-    bool            ttPv;
+    uint8_t         ply;
+    uint8_t         moveCount;
+    uint8_t         cutoffCnt;
     bool            ttHit;
-    int             cutoffCnt;
+    bool            inCheck:1;
+    bool            ttPv:1;
 };
 
 
@@ -144,7 +144,6 @@ class SearchManager: public ISearchManager {
 
     std::string pv(const Search::Worker&     worker,
                    const ThreadPool&         threads,
-                   const TranspositionTable& tt,
                    Depth                     depth) const;
 
     Stockfish::TimeManagement tm;

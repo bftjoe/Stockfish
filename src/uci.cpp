@@ -57,7 +57,7 @@ UCI::UCI(int argc, char** argv) :
     evalFiles = {{Eval::NNUE::Big, {"EvalFile", EvalFileDefaultNameBig, "None", ""}},
                  {Eval::NNUE::Small, {"EvalFileSmall", EvalFileDefaultNameSmall, "None", ""}}};
 
-    options["Threads"] << Option(1, 1, 1024, [this](const Option&) {
+    options["Threads"] << Option(1, 1, MaxThreads, [this](const Option&) {
         threads.set({options, threads, tt});
     });
 
@@ -67,16 +67,14 @@ UCI::UCI(int argc, char** argv) :
     });
 
     options["Ponder"] << Option(false);
-    options["MultiPV"] << Option(1, 1, MAX_MOVES);
     options["Move Overhead"] << Option(10, 0, 5000);
     options["UCI_Chess960"] << Option(false);
-    options["UCI_ShowWDL"] << Option(false);
+#if !defined NETEMBED
     options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option&) {
-        evalFiles = Eval::NNUE::load_networks(cli.binaryDirectory, options, evalFiles);
-    });
+        evalFiles = Eval::NNUE::load_networks(cli.binaryDirectory, options, evalFiles); });
     options["EvalFileSmall"] << Option(EvalFileDefaultNameSmall, [this](const Option&) {
-        evalFiles = Eval::NNUE::load_networks(cli.binaryDirectory, options, evalFiles);
-    });
+        evalFiles = Eval::NNUE::load_networks(cli.binaryDirectory, options, evalFiles); });
+#endif
 
     threads.set({options, threads, tt});
 }

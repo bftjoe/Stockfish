@@ -141,18 +141,4 @@ TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
     return found = false, replace;
 }
 
-
-// Returns an approximation of the hashtable
-// occupation during a search. The hash is x permill full, as per UCI protocol.
-// Only counts entries which match the current generation.
-int TranspositionTable::hashfull() const {
-    int cnt = 0;
-    for (int i = 0; i < 1000 / ClusterSize; ++i)
-        for (int j = 0; j < ClusterSize; ++j)
-            cnt += table[i].entry[j].depth8
-                && (table[i].entry[j].genBound8 & GENERATION_MASK) == generation8;
-
-    return cnt;
-}
-
 }  // namespace Stockfish

@@ -47,6 +47,7 @@
 #if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF)
 INCBIN(EmbeddedNNUEBig, EvalFileDefaultNameBig);
 INCBIN(EmbeddedNNUESmall, EvalFileDefaultNameSmall);
+#define NETEMBED
 #else
 const unsigned char        gEmbeddedNNUEBigData[1]   = {0x0};
 const unsigned char* const gEmbeddedNNUEBigEnd       = &gEmbeddedNNUEBigData[1];

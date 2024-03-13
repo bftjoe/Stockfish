@@ -208,7 +208,7 @@ void Search::Worker::iterative_deepening() {
             mainThread->iterValue.fill(mainThread->bestPreviousScore);
     }
 
-    size_t multiPV = std::min(size_t(options["MultiPV"]), rootMoves.size());
+    size_t multiPV = std::min(size_t(MultiPV), rootMoves.size());
 
     int searchAgainCounter = 0;
 
@@ -312,7 +312,7 @@ void Search::Worker::iterative_deepening() {
                 // had time to fully search other root-moves. Thus we suppress this output and
                 // below pick a proven score/PV for this thread (from the previous iteration).
                 && !(threads.abortedSearch && rootMoves[0].uciScore <= VALUE_TB_LOSS_IN_MAX_PLY))
-                sync_cout << main_manager()->pv(*this, threads, tt, rootDepth) << sync_endl;
+                sync_cout << main_manager()->pv(*this, threads, rootDepth) << sync_endl;
         }
 
         if (!threads.stop)
@@ -1562,7 +1562,6 @@ void SearchManager::check_time(Search::Worker& worker) {
 
 std::string SearchManager::pv(const Search::Worker&     worker,
                               const ThreadPool&         threads,
-                              const TranspositionTable& tt,
                               Depth                     depth) const {
     std::stringstream ss;
 
@@ -1571,7 +1570,7 @@ std::string SearchManager::pv(const Search::Worker&     worker,
     const auto& pos       = worker.rootPos;
     size_t      pvIdx     = worker.pvIdx;
     TimePoint   time      = tm.elapsed() + 1;
-    size_t      multiPV   = std::min(size_t(worker.options["MultiPV"]), rootMoves.size());
+    size_t      multiPV   = std::min(size_t(MultiPV), rootMoves.size());
 
     for (size_t i = 0; i < multiPV; ++i)
     {
@@ -1583,7 +1582,7 @@ std::string SearchManager::pv(const Search::Worker&     worker,
         Depth d = updated ? depth : std::max(1, depth - 1);
         Value v = updated ? rootMoves[i].uciScore : rootMoves[i].previousScore;
 
-        if (v == -VALUE_INFINITE)
+        if (v == -VALUE_INFINITE) 
             v = VALUE_ZERO;
 
         if (ss.rdbuf()->in_avail())  // Not at first line
@@ -1591,7 +1590,7 @@ std::string SearchManager::pv(const Search::Worker&     worker,
 
         ss << "info depth " << d << " multipv " << i + 1 << " score " << UCI::value(v);
 
-        if (worker.options["UCI_ShowWDL"])
+        if (ShowWDL)
             ss << UCI::wdl(v, pos.game_ply());
 
         if (i == pvIdx && updated)  // previous-scores are exact
@@ -1599,8 +1598,7 @@ std::string SearchManager::pv(const Search::Worker&     worker,
                      ? " lowerbound"
                      : (rootMoves[i].scoreUpperbound ? " upperbound" : ""));
 
-        ss << " nodes " << nodes << " nps " << nodes * 1000 / time <<
-             " hashfull " << tt.hashfull() << " time " << time << " pv";
+        ss << " nodes " << nodes << " nps " << nodes * 1000 / time << " time " << time << " pv";
 
         for (Move m : rootMoves[i].pv)
             ss << " " << UCI::move(m, pos.is_chess960());

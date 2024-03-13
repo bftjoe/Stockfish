@@ -122,11 +122,7 @@ bool Option::operator==(const char* s) const {
 // Inits options and assigns idx in the correct printing order
 
 void Option::operator<<(const Option& o) {
-
-    static size_t insert_order = 0;
-
     *this = o;
-    idx   = insert_order++;
 }
 
 
@@ -163,22 +159,18 @@ Option& Option::operator=(const std::string& v) {
 }
 
 std::ostream& operator<<(std::ostream& os, const OptionsMap& om) {
-    for (size_t idx = 0; idx < om.options_map.size(); ++idx)
-        for (const auto& it : om.options_map)
-            if (it.second.idx == idx)
-            {
-                const Option& o = it.second;
-                os << "\noption name " << it.first << " type " << o.type;
+    for (const auto& it : om.options_map){
+        const Option& o = it.second;
+        os << "\noption name " << it.first << " type " << o.type;
 
-                if (o.type == "string" || o.type == "check" || o.type == "combo")
-                    os << " default " << o.defaultValue;
+        if (o.type == "string" || o.type == "check" || o.type == "combo")
+            os << " default " << o.defaultValue;
 
-                if (o.type == "spin")
-                    os << " default " << int(stof(o.defaultValue)) << " min " << o.min << " max "
-                       << o.max;
-
-                break;
-            }
+        if (o.type == "spin")
+            os << " default " << int(stof(o.defaultValue)) << " min " << o.min << " max "
+               << o.max;
+    }
+    
 
     return os;
 }

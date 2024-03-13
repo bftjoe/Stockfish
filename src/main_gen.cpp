@@ -3358,17 +3358,17 @@ namespace Search {
 struct Stack {
     Move*           pv;
     PieceToHistory* continuationHistory;
-    int             ply;
     Move            currentMove;
     Move            excludedMove;
     Move            killers[2];
     Value           staticEval;
     int             statScore;
-    int             moveCount;
-    bool            inCheck;
-    bool            ttPv;
+    uint8_t         ply;
+    uint8_t         moveCount;
+    uint8_t         cutoffCnt;
     bool            ttHit;
-    int             cutoffCnt;
+    bool            inCheck:1;
+    bool            ttPv:1;
 };
 
 // RootMove struct is used for moves at the root of the tree. For each root move
@@ -3445,7 +3445,6 @@ class SearchManager: public ISearchManager {
 
     std::string pv(const Search::Worker&     worker,
                    const ThreadPool&         threads,
-                   const TranspositionTable& tt,
                    Depth                     depth) const;
 
     Stockfish::TimeManagement tm;
@@ -3882,13 +3881,16 @@ class Option {
    private:
     std::string defaultValue, currentValue, type;
     int         min, max;
-    size_t      idx;
     OnChange    on_change;
 };
 
 }
 
 namespace Stockfish {
+
+constexpr uint8_t MultiPV = 1;
+constexpr uint8_t MaxThreads = 15;
+constexpr bool ShowWDL = false;
 
 namespace Eval::NNUE {
 enum NetSize : int;
@@ -5378,6 +5380,7 @@ bool                       save_eval(const std::optional<std::string>& filename,
 #if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF)
 INCBIN(EmbeddedNNUEBig, EvalFileDefaultNameBig);
 INCBIN(EmbeddedNNUESmall, EvalFileDefaultNameSmall);
+#define NETEMBED
 #else
 const unsigned char        gEmbeddedNNUEBigData[1]   = {0x0};
 const unsigned char* const gEmbeddedNNUEBigEnd       = &gEmbeddedNNUEBigData[1];
@@ -8332,7 +8335,7 @@ void Search::Worker::iterative_deepening() {
             mainThread->iterValue.fill(mainThread->bestPreviousScore);
     }
 
-    size_t multiPV = std::min(size_t(options["MultiPV"]), rootMoves.size());
+    size_t multiPV = std::min(size_t(MultiPV), rootMoves.size());
 
     int searchAgainCounter = 0;
 
@@ -8436,7 +8439,7 @@ void Search::Worker::iterative_deepening() {
                 // had time to fully search other root-moves. Thus we suppress this output and
                 // below pick a proven score/PV for this thread (from the previous iteration).
                 && !(threads.abortedSearch && rootMoves[0].uciScore <= VALUE_TB_LOSS_IN_MAX_PLY))
-                sync_cout << main_manager()->pv(*this, threads, tt, rootDepth) << sync_endl;
+                sync_cout << main_manager()->pv(*this, threads, rootDepth) << sync_endl;
         }
 
         if (!threads.stop)
@@ -9679,7 +9682,6 @@ void SearchManager::check_time(Search::Worker& worker) {
 
 std::string SearchManager::pv(const Search::Worker&     worker,
                               const ThreadPool&         threads,
-                              const TranspositionTable& tt,
                               Depth                     depth) const {
     std::stringstream ss;
 
@@ -9688,7 +9690,7 @@ std::string SearchManager::pv(const Search::Worker&     worker,
     const auto& pos       = worker.rootPos;
     size_t      pvIdx     = worker.pvIdx;
     TimePoint   time      = tm.elapsed() + 1;
-    size_t      multiPV   = std::min(size_t(worker.options["MultiPV"]), rootMoves.size());
+    size_t      multiPV   = std::min(size_t(MultiPV), rootMoves.size());
 
     for (size_t i = 0; i < multiPV; ++i)
     {
@@ -9700,7 +9702,7 @@ std::string SearchManager::pv(const Search::Worker&     worker,
         Depth d = updated ? depth : std::max(1, depth - 1);
         Value v = updated ? rootMoves[i].uciScore : rootMoves[i].previousScore;
 
-        if (v == -VALUE_INFINITE)
+        if (v == -VALUE_INFINITE) 
             v = VALUE_ZERO;
 
         if (ss.rdbuf()->in_avail())  // Not at first line
@@ -9708,7 +9710,7 @@ std::string SearchManager::pv(const Search::Worker&     worker,
 
         ss << "info depth " << d << " multipv " << i + 1 << " score " << UCI::value(v);
 
-        if (worker.options["UCI_ShowWDL"])
+        if (ShowWDL)
             ss << UCI::wdl(v, pos.game_ply());
 
         if (i == pvIdx && updated)  // previous-scores are exact
@@ -9716,8 +9718,7 @@ std::string SearchManager::pv(const Search::Worker&     worker,
                      ? " lowerbound"
                      : (rootMoves[i].scoreUpperbound ? " upperbound" : ""));
 
-        ss << " nodes " << nodes << " nps " << nodes * 1000 / time <<
-             " hashfull " << tt.hashfull() << " time " << time << " pv";
+        ss << " nodes " << nodes << " nps " << nodes * 1000 / time << " time " << time << " pv";
 
         for (Move m : rootMoves[i].pv)
             ss << " " << UCI::move(m, pos.is_chess960());
@@ -10066,19 +10067,6 @@ TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
     return found = false, replace;
 }
 
-// Returns an approximation of the hashtable
-// occupation during a search. The hash is x permill full, as per UCI protocol.
-// Only counts entries which match the current generation.
-int TranspositionTable::hashfull() const {
-    int cnt = 0;
-    for (int i = 0; i < 1000 / ClusterSize; ++i)
-        for (int j = 0; j < ClusterSize; ++j)
-            cnt += table[i].entry[j].depth8
-                && (table[i].entry[j].genBound8 & GENERATION_MASK) == generation8;
-
-    return cnt;
-}
-
 }  // namespace Stockfish
 /*
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
@@ -10199,11 +10187,7 @@ bool Option::operator==(const char* s) const {
 // Inits options and assigns idx in the correct printing order
 
 void Option::operator<<(const Option& o) {
-
-    static size_t insert_order = 0;
-
     *this = o;
-    idx   = insert_order++;
 }
 
 // Updates currentValue and triggers on_change() action. It's up to
@@ -10239,22 +10223,18 @@ Option& Option::operator=(const std::string& v) {
 }
 
 std::ostream& operator<<(std::ostream& os, const OptionsMap& om) {
-    for (size_t idx = 0; idx < om.options_map.size(); ++idx)
-        for (const auto& it : om.options_map)
-            if (it.second.idx == idx)
-            {
-                const Option& o = it.second;
-                os << "\noption name " << it.first << " type " << o.type;
+    for (const auto& it : om.options_map){
+        const Option& o = it.second;
+        os << "\noption name " << it.first << " type " << o.type;
 
-                if (o.type == "string" || o.type == "check" || o.type == "combo")
-                    os << " default " << o.defaultValue;
+        if (o.type == "string" || o.type == "check" || o.type == "combo")
+            os << " default " << o.defaultValue;
 
-                if (o.type == "spin")
-                    os << " default " << int(stof(o.defaultValue)) << " min " << o.min << " max "
-                       << o.max;
-
-                break;
-            }
+        if (o.type == "spin")
+            os << " default " << int(stof(o.defaultValue)) << " min " << o.min << " max "
+               << o.max;
+    }
+    
 
     return os;
 }
@@ -10337,7 +10317,7 @@ UCI::UCI(int argc, char** argv) :
     evalFiles = {{Eval::NNUE::Big, {"EvalFile", EvalFileDefaultNameBig, "None", ""}},
                  {Eval::NNUE::Small, {"EvalFileSmall", EvalFileDefaultNameSmall, "None", ""}}};
 
-    options["Threads"] << Option(1, 1, 1024, [this](const Option&) {
+    options["Threads"] << Option(1, 1, MaxThreads, [this](const Option&) {
         threads.set({options, threads, tt});
     });
 
@@ -10347,16 +10327,14 @@ UCI::UCI(int argc, char** argv) :
     });
 
     options["Ponder"] << Option(false);
-    options["MultiPV"] << Option(1, 1, MAX_MOVES);
     options["Move Overhead"] << Option(10, 0, 5000);
     options["UCI_Chess960"] << Option(false);
-    options["UCI_ShowWDL"] << Option(false);
+#if !defined NETEMBED
     options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option&) {
-        evalFiles = Eval::NNUE::load_networks(cli.binaryDirectory, options, evalFiles);
-    });
+        evalFiles = Eval::NNUE::load_networks(cli.binaryDirectory, options, evalFiles); });
     options["EvalFileSmall"] << Option(EvalFileDefaultNameSmall, [this](const Option&) {
-        evalFiles = Eval::NNUE::load_networks(cli.binaryDirectory, options, evalFiles);
-    });
+        evalFiles = Eval::NNUE::load_networks(cli.binaryDirectory, options, evalFiles); });
+#endif
 
     threads.set({options, threads, tt});
 }

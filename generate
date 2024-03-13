@@ -1,9 +1,10 @@
 #!/bin/bash
 #below line technically only needs to run once
 guard2once -r .
-rm -rf build
-cp -r src build
+mkdir build
 cd build
+rm -rf *.h *.cpp stockfish* *.o 
+cp -r ../src/* .
 quom main.cpp main_gen.cpp
 make profile-build
 cp main_gen.cpp ../src
