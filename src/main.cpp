@@ -17,10 +17,8 @@
 */
 
 #include <iostream>
-#include <unordered_map>
 
 #include "bitboard.h"
-#include "evaluate.h"
 #include "misc.h"
 #include "position.h"
 #include "types.h"
@@ -36,9 +34,6 @@ int main(int argc, char* argv[]) {
     Position::init();
 
     UCI uci(argc, argv);
-
-    uci.evalFiles = Eval::NNUE::load_networks(uci.workingDirectory(), uci.options, uci.evalFiles);
-
     uci.loop();
 
     return 0;

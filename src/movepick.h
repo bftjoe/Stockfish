@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -27,8 +28,8 @@
 #include <type_traits>  // IWYU pragma: keep
 
 #include "movegen.h"
-#include "types.h"
 #include "position.h"
+#include "types.h"
 
 namespace Stockfish {
 
@@ -68,10 +69,11 @@ class StatsEntry {
     operator const T&() const { return entry; }
 
     void operator<<(int bonus) {
-        assert(std::abs(bonus) <= D);  // Ensure range is [-D, D]
         static_assert(D <= std::numeric_limits<T>::max(), "D overflows T");
 
-        entry += bonus - entry * std::abs(bonus) / D;
+        // Make sure that bonus is in range [-D, D]
+        int clampedBonus = std::clamp(bonus, -D, D);
+        entry += clampedBonus - entry * std::abs(clampedBonus) / D;
 
         assert(std::abs(entry) <= D);
     }

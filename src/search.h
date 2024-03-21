@@ -24,8 +24,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <vector>
 #include <string>
+#include <vector>
 
 #include "misc.h"
 #include "movepick.h"
@@ -34,6 +34,10 @@
 #include "types.h"
 
 namespace Stockfish {
+
+namespace Eval::NNUE {
+struct Networks;
+}
 
 // Different node types, used as a template parameter
 enum NodeType {
@@ -81,6 +85,7 @@ struct RootMove {
         return m.score != score ? m.score < score : m.previousScore < previousScore;
     }
 
+    uint64_t          effort          = 0;
     Value             score           = -VALUE_INFINITE;
     Value             previousScore   = -VALUE_INFINITE;
     Value             averageScore    = -VALUE_INFINITE;
@@ -114,16 +119,20 @@ struct LimitsType {
 // The UCI stores the uci options, thread pool, and transposition table.
 // This struct is used to easily forward data to the Search::Worker class.
 struct SharedState {
-    SharedState(const OptionsMap&   optionsMap,
-                ThreadPool&         threadPool,
-                TranspositionTable& transpositionTable) :
+    SharedState(const OptionsMap&           optionsMap,
+                ThreadPool&                 threadPool,
+                TranspositionTable&         transpositionTable,
+                const Eval::NNUE::Networks& nets) :
         options(optionsMap),
         threads(threadPool),
-        tt(transpositionTable) {}
+        tt(transpositionTable),
+        networks(nets) {}
 
-    const OptionsMap&   options;
-    ThreadPool&         threads;
-    TranspositionTable& tt;
+
+    const OptionsMap&           options;
+    ThreadPool&                 threads;
+    TranspositionTable&         tt;
+    const Eval::NNUE::Networks& networks;
 };
 
 class Worker;
@@ -163,6 +172,7 @@ class NullSearchManager: public ISearchManager {
    public:
     void check_time(Search::Worker&) override {}
 };
+
 
 // Search::Worker is the class that does the actual search.
 // It is instantiated once per thread, and it is responsible for keeping track
@@ -206,8 +216,6 @@ class Worker {
         return static_cast<SearchManager*>(manager.get());
     }
 
-    std::array<std::array<uint64_t, SQUARE_NB>, SQUARE_NB> effort;
-
     LimitsType limits;
 
     size_t                pvIdx, pvLast;
@@ -227,9 +235,10 @@ class Worker {
     // The main thread has a SearchManager, the others have a NullSearchManager
     std::unique_ptr<ISearchManager> manager;
 
-    const OptionsMap&   options;
-    ThreadPool&         threads;
-    TranspositionTable& tt;
+    const OptionsMap&           options;
+    ThreadPool&                 threads;
+    TranspositionTable&         tt;
+    const Eval::NNUE::Networks& networks;
 
     friend class Stockfish::ThreadPool;
     friend class SearchManager;

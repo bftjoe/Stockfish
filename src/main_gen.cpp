@@ -17,7 +17,6 @@
 */
 
 #include <iostream>
-#include <unordered_map>
 
 /*
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
@@ -795,75 +794,13 @@ inline Square pop_lsb(Bitboard& b) {
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <string>
-#include <unordered_map>
-
-namespace Stockfish {
-
-class Position;
-class OptionsMap;
-
-namespace Eval {
-
-int   simple_eval(const Position& pos, Color c);
-Value evaluate(const Position& pos, int optimism);
-
-// The default net name MUST follow the format nn-[SHA256 first 12 digits].nnue
-// for the build process (profile-build and fishtest) to work. Do not change the
-// name of the macro, as it is used in the Makefile.
-#define EvalFileDefaultNameBig "nn-1ceb1ade0001.nnue"
-#define EvalFileDefaultNameSmall "nn-baff1ede1f90.nnue"
-
-struct EvalFile {
-    // UCI option name
-    std::string optionName;
-    // Default net name, will use one of the macros above
-    std::string defaultName;
-    // Selected net name, either via uci option or default
-    std::string current;
-    // Net description extracted from the net file
-    std::string netDescription;
-};
-
-namespace NNUE {
-
-enum NetSize : int;
-
-using EvalFiles = std::unordered_map<Eval::NNUE::NetSize, EvalFile>;
-
-EvalFiles load_networks(const std::string&, const OptionsMap&, EvalFiles);
-void      verify(const OptionsMap&, const EvalFiles&);
-
-}  // namespace NNUE
-
-}  // namespace Eval
-
-}  // namespace Stockfish
-
-/*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
-
-  Stockfish is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  Stockfish is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 #include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <iosfwd>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -886,6 +823,35 @@ void  std_aligned_free(void* ptr);
 void* aligned_large_pages_alloc(size_t size);
 // nop if mem == nullptr
 void aligned_large_pages_free(void* mem);
+
+// Deleter for automating release of memory area
+template<typename T>
+struct AlignedDeleter {
+    void operator()(T* ptr) const {
+        ptr->~T();
+        std_aligned_free(ptr);
+    }
+};
+
+template<typename T>
+struct LargePageDeleter {
+    void operator()(T* ptr) const {
+        ptr->~T();
+        aligned_large_pages_free(ptr);
+    }
+};
+
+template<typename T>
+using AlignedPtr = std::unique_ptr<T, AlignedDeleter<T>>;
+
+template<typename T>
+using LargePagePtr = std::unique_ptr<T, LargePageDeleter<T>>;
+
+void dbg_hit_on(bool cond, int slot = 0);
+void dbg_mean_of(int64_t value, int slot = 0);
+void dbg_stdev_of(int64_t value, int slot = 0);
+void dbg_correl_of(int64_t value1, int64_t value2, int slot = 0);
+void dbg_print();
 
 using TimePoint = std::chrono::milliseconds::rep;  // A value in milliseconds
 static_assert(sizeof(TimePoint) == sizeof(int64_t), "TimePoint should be 64 bits");
@@ -1002,7 +968,7 @@ inline uint64_t mul_hi64(uint64_t a, uint64_t b) {
 // called to set group affinity for each thread. Original code from Texel by
 // Peter Österlund.
 namespace WinProcGroup {
-void bindThisThread(size_t idx);
+void bind_this_thread(size_t idx);
 }
 
 struct CommandLine {
@@ -2513,11 +2479,6 @@ namespace Stockfish::Eval::NNUE {
 // Input features used in evaluation function
 using FeatureSet = Features::HalfKAv2_hm;
 
-enum NetSize : int {
-    Big,
-    Small
-};
-
 // Number of input feature dimensions after conversion
 constexpr IndexType TransformedFeatureDimensionsBig = 2560;
 constexpr int       L2Big                           = 15;
@@ -2531,7 +2492,7 @@ constexpr IndexType PSQTBuckets = 8;
 constexpr IndexType LayerStacks = 8;
 
 template<IndexType L1, int L2, int L3>
-struct Network {
+struct NetworkArchitecture {
     static constexpr IndexType TransformedFeatureDimensions = L1;
     static constexpr int       FC_0_OUTPUTS                 = L2;
     static constexpr int       FC_1_OUTPUTS                 = L3;
@@ -2975,7 +2936,6 @@ inline StateInfo* Position::state() const { return st; }
 
 #include <iostream>
 #include <string>
-#include <unordered_map>
 
 /*
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
@@ -2995,1592 +2955,11 @@ inline StateInfo* Position::state() const { return st; }
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <atomic>
-#include <condition_variable>
-#include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <mutex>
-#include <vector>
-
-/*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
-
-  Stockfish is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  Stockfish is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#include <array>
-#include <atomic>
-#include <cassert>
-#include <cstddef>
-#include <cstdint>
-#include <memory>
-#include <vector>
-#include <string>
-
-/*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
-
-  Stockfish is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  Stockfish is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#include <array>
-#include <cassert>
-#include <cmath>
-#include <cstdint>
-#include <cstdlib>
-#include <limits>
-#include <type_traits>  // IWYU pragma: keep
-
-/*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
-
-  Stockfish is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  Stockfish is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#include <algorithm>  // IWYU pragma: keep
-#include <cstddef>
-
-namespace Stockfish {
-
-class Position;
-
-enum GenType {
-    CAPTURES,
-    QUIETS,
-    QUIET_CHECKS,
-    EVASIONS,
-    NON_EVASIONS,
-    LEGAL
-};
-
-struct ExtMove: public Move {
-    int value;
-
-    void operator=(Move m) { data = m.raw(); }
-
-    // Inhibit unwanted implicit conversions to Move
-    // with an ambiguity that yields to a compile error.
-    operator float() const = delete;
-};
-
-inline bool operator<(const ExtMove& f, const ExtMove& s) { return f.value < s.value; }
-
-template<GenType>
-ExtMove* generate(const Position& pos, ExtMove* moveList);
-
-// The MoveList struct wraps the generate() function and returns a convenient
-// list of moves. Using MoveList is sometimes preferable to directly calling
-// the lower level generate() function.
-template<GenType T>
-struct MoveList {
-
-    explicit MoveList(const Position& pos) :
-        last(generate<T>(pos, moveList)) {}
-    const ExtMove* begin() const { return moveList; }
-    const ExtMove* end() const { return last; }
-    size_t         size() const { return last - moveList; }
-    bool           contains(Move move) const { return std::find(begin(), end(), move) != end(); }
-
-   private:
-    ExtMove moveList[MAX_MOVES], *last;
-};
-
-}  // namespace Stockfish
-
-namespace Stockfish {
-
-constexpr int PAWN_HISTORY_SIZE        = 512;    // has to be a power of 2
-constexpr int CORRECTION_HISTORY_SIZE  = 16384;  // has to be a power of 2
-constexpr int CORRECTION_HISTORY_LIMIT = 1024;
-
-static_assert((PAWN_HISTORY_SIZE & (PAWN_HISTORY_SIZE - 1)) == 0,
-              "PAWN_HISTORY_SIZE has to be a power of 2");
-
-static_assert((CORRECTION_HISTORY_SIZE & (CORRECTION_HISTORY_SIZE - 1)) == 0,
-              "CORRECTION_HISTORY_SIZE has to be a power of 2");
-
-enum PawnHistoryType {
-    Normal,
-    Correction
-};
-
-template<PawnHistoryType T = Normal>
-inline int pawn_structure_index(const Position& pos) {
-    return pos.pawn_key() & ((T == Normal ? PAWN_HISTORY_SIZE : CORRECTION_HISTORY_SIZE) - 1);
-}
-
-// StatsEntry stores the stat table value. It is usually a number but could
-// be a move or even a nested history. We use a class instead of a naked value
-// to directly call history update operator<<() on the entry so to use stats
-// tables at caller sites as simple multi-dim arrays.
-template<typename T, int D>
-class StatsEntry {
-
-    T entry;
-
-   public:
-    void operator=(const T& v) { entry = v; }
-    T*   operator&() { return &entry; }
-    T*   operator->() { return &entry; }
-    operator const T&() const { return entry; }
-
-    void operator<<(int bonus) {
-        assert(std::abs(bonus) <= D);  // Ensure range is [-D, D]
-        static_assert(D <= std::numeric_limits<T>::max(), "D overflows T");
-
-        entry += bonus - entry * std::abs(bonus) / D;
-
-        assert(std::abs(entry) <= D);
-    }
-};
-
-// Stats is a generic N-dimensional array used to store various statistics.
-// The first template parameter T is the base type of the array, and the second
-// template parameter D limits the range of updates in [-D, D] when we update
-// values with the << operator, while the last parameters (Size and Sizes)
-// encode the dimensions of the array.
-template<typename T, int D, int Size, int... Sizes>
-struct Stats: public std::array<Stats<T, D, Sizes...>, Size> {
-    using stats = Stats<T, D, Size, Sizes...>;
-
-    void fill(const T& v) {
-
-        // For standard-layout 'this' points to the first struct member
-        assert(std::is_standard_layout_v<stats>);
-
-        using entry = StatsEntry<T, D>;
-        entry* p    = reinterpret_cast<entry*>(this);
-        std::fill(p, p + sizeof(*this) / sizeof(entry), v);
-    }
-};
-
-template<typename T, int D, int Size>
-struct Stats<T, D, Size>: public std::array<StatsEntry<T, D>, Size> {};
-
-// In stats table, D=0 means that the template parameter is not used
-enum StatsParams {
-    NOT_USED = 0
-};
-enum StatsType {
-    NoCaptures,
-    Captures
-};
-
-// ButterflyHistory records how often quiet moves have been successful or unsuccessful
-// during the current search, and is used for reduction and move ordering decisions.
-// It uses 2 tables (one for each color) indexed by the move's from and to squares,
-// see www.chessprogramming.org/Butterfly_Boards (~11 elo)
-using ButterflyHistory = Stats<int16_t, 7183, COLOR_NB, int(SQUARE_NB) * int(SQUARE_NB)>;
-
-// CounterMoveHistory stores counter moves indexed by [piece][to] of the previous
-// move, see www.chessprogramming.org/Countermove_Heuristic
-using CounterMoveHistory = Stats<Move, NOT_USED, PIECE_NB, SQUARE_NB>;
-
-// CapturePieceToHistory is addressed by a move's [piece][to][captured piece type]
-using CapturePieceToHistory = Stats<int16_t, 10692, PIECE_NB, SQUARE_NB, PIECE_TYPE_NB>;
-
-// PieceToHistory is like ButterflyHistory but is addressed by a move's [piece][to]
-using PieceToHistory = Stats<int16_t, 29952, PIECE_NB, SQUARE_NB>;
-
-// ContinuationHistory is the combined history of a given pair of moves, usually
-// the current one given a previous one. The nested history table is based on
-// PieceToHistory instead of ButterflyBoards.
-// (~63 elo)
-using ContinuationHistory = Stats<PieceToHistory, NOT_USED, PIECE_NB, SQUARE_NB>;
-
-// PawnHistory is addressed by the pawn structure and a move's [piece][to]
-using PawnHistory = Stats<int16_t, 8192, PAWN_HISTORY_SIZE, PIECE_NB, SQUARE_NB>;
-
-// CorrectionHistory is addressed by color and pawn structure
-using CorrectionHistory =
-  Stats<int16_t, CORRECTION_HISTORY_LIMIT, COLOR_NB, CORRECTION_HISTORY_SIZE>;
-
-// MovePicker class is used to pick one pseudo-legal move at a time from the
-// current position. The most important method is next_move(), which returns a
-// new pseudo-legal move each time it is called, until there are no moves left,
-// when Move::none() is returned. In order to improve the efficiency of the
-// alpha-beta algorithm, MovePicker attempts to return the moves which are most
-// likely to get a cut-off first.
-class MovePicker {
-
-    enum PickType {
-        Next,
-        Best
-    };
-
-   public:
-    MovePicker(const MovePicker&)            = delete;
-    MovePicker& operator=(const MovePicker&) = delete;
-    MovePicker(const Position&,
-               Move,
-               Depth,
-               const ButterflyHistory*,
-               const CapturePieceToHistory*,
-               const PieceToHistory**,
-               const PawnHistory*,
-               Move,
-               const Move*);
-    MovePicker(const Position&,
-               Move,
-               Depth,
-               const ButterflyHistory*,
-               const CapturePieceToHistory*,
-               const PieceToHistory**,
-               const PawnHistory*);
-    MovePicker(const Position&, Move, int, const CapturePieceToHistory*);
-    Move next_move(bool skipQuiets = false);
-
-   private:
-    template<PickType T, typename Pred>
-    Move select(Pred);
-    template<GenType>
-    void     score();
-    ExtMove* begin() { return cur; }
-    ExtMove* end() { return endMoves; }
-
-    const Position&              pos;
-    const ButterflyHistory*      mainHistory;
-    const CapturePieceToHistory* captureHistory;
-    const PieceToHistory**       continuationHistory;
-    const PawnHistory*           pawnHistory;
-    Move                         ttMove;
-    ExtMove refutations[3], *cur, *endMoves, *endBadCaptures, *beginBadQuiets, *endBadQuiets;
-    int     stage;
-    int     threshold;
-    Depth   depth;
-    ExtMove moves[MAX_MOVES];
-};
-
-}  // namespace Stockfish
-
-/*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
-
-  Stockfish is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  Stockfish is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#include <cstddef>
-#include <cstdint>
-
-namespace Stockfish {
-
-class OptionsMap;
-
-namespace Search {
-struct LimitsType;
-}
-
-// The TimeManagement class computes the optimal time to think depending on
-// the maximum available time, the game move number, and other parameters.
-class TimeManagement {
-   public:
-    void init(Search::LimitsType& limits, Color us, int ply, const OptionsMap& options);
-
-    TimePoint optimum() const;
-    TimePoint maximum() const;
-    TimePoint elapsed() const;
-
-   private:
-    TimePoint startTime;
-    TimePoint optimumTime;
-    TimePoint maximumTime;
-};
-
-}  // namespace Stockfish
-
-namespace Stockfish {
-
-// Different node types, used as a template parameter
-enum NodeType {
-    NonPV,
-    PV,
-    Root
-};
-
-class TranspositionTable;
-class ThreadPool;
-class OptionsMap;
-
-namespace Search {
-
-// Stack struct keeps track of the information we need to remember from nodes
-// shallower and deeper in the tree during the search. Each search thread has
-// its own array of Stack objects, indexed by the current ply.
-struct Stack {
-    Move*           pv;
-    PieceToHistory* continuationHistory;
-    Move            currentMove;
-    Move            excludedMove;
-    Move            killers[2];
-    Value           staticEval;
-    int             statScore;
-    uint8_t         ply;
-    uint8_t         moveCount;
-    uint8_t         cutoffCnt;
-    bool            ttHit;
-    bool            inCheck:1;
-    bool            ttPv:1;
-};
-
-// RootMove struct is used for moves at the root of the tree. For each root move
-// we store a score and a PV (really a refutation in the case of moves which
-// fail low). Score is normally set at -VALUE_INFINITE for all non-pv moves.
-struct RootMove {
-
-    explicit RootMove(Move m) :
-        pv(1, m) {}
-    bool operator==(const Move& m) const { return pv[0] == m; }
-    // Sort in descending order
-    bool operator<(const RootMove& m) const {
-        return m.score != score ? m.score < score : m.previousScore < previousScore;
-    }
-
-    Value             score           = -VALUE_INFINITE;
-    Value             previousScore   = -VALUE_INFINITE;
-    Value             averageScore    = -VALUE_INFINITE;
-    Value             uciScore        = -VALUE_INFINITE;
-    bool              scoreLowerbound = false;
-    bool              scoreUpperbound = false;
-    std::vector<Move> pv;
-};
-
-using RootMoves = std::vector<RootMove>;
-
-// LimitsType struct stores information sent by GUI about available time to
-// search the current move, maximum depth/time, or if we are in analysis mode.
-struct LimitsType {
-
-    // Init explicitly due to broken value-initialization of non POD in MSVC
-    LimitsType() {
-        time[WHITE] = time[BLACK] = inc[WHITE] = inc[BLACK] = movetime = TimePoint(0);
-        depth = infinite = nodes = 0;
-    }
-
-    bool use_time_management() const { return time[WHITE] || time[BLACK]; }
-
-    TimePoint time[COLOR_NB], inc[COLOR_NB], movetime, startTime;
-    int       depth, infinite;
-    uint64_t  nodes;
-};
-
-// The UCI stores the uci options, thread pool, and transposition table.
-// This struct is used to easily forward data to the Search::Worker class.
-struct SharedState {
-    SharedState(const OptionsMap&   optionsMap,
-                ThreadPool&         threadPool,
-                TranspositionTable& transpositionTable) :
-        options(optionsMap),
-        threads(threadPool),
-        tt(transpositionTable) {}
-
-    const OptionsMap&   options;
-    ThreadPool&         threads;
-    TranspositionTable& tt;
-};
-
-class Worker;
-
-// Null Object Pattern, implement a common interface for the SearchManagers.
-// A Null Object will be given to non-mainthread workers.
-class ISearchManager {
-   public:
-    virtual ~ISearchManager() {}
-    virtual void check_time(Search::Worker&) = 0;
-};
-
-// SearchManager manages the search from the main thread. It is responsible for
-// keeping track of the time, and storing data strictly related to the main thread.
-class SearchManager: public ISearchManager {
-   public:
-    void check_time(Search::Worker& worker) override;
-
-    std::string pv(const Search::Worker&     worker,
-                   const ThreadPool&         threads,
-                   Depth                     depth) const;
-
-    Stockfish::TimeManagement tm;
-    int                       callsCnt;
-    std::atomic_bool          ponder;
-
-    std::array<Value, 4> iterValue;
-    double               previousTimeReduction;
-    Value                bestPreviousScore;
-    Value                bestPreviousAverageScore;
-    bool                 stopOnPonderhit;
-
-    size_t id;
-};
-
-class NullSearchManager: public ISearchManager {
-   public:
-    void check_time(Search::Worker&) override {}
-};
-
-// Search::Worker is the class that does the actual search.
-// It is instantiated once per thread, and it is responsible for keeping track
-// of the search history, and storing data required for the search.
-class Worker {
-   public:
-    Worker(SharedState&, std::unique_ptr<ISearchManager>, size_t);
-
-    // Called at instantiation to reset histories, usually before a new game
-    void clear();
-
-    // Called when the program receives the UCI 'go' command.
-    // It searches from the root position and outputs the "bestmove".
-    void start_searching();
-
-    bool is_mainthread() const { return thread_idx == 0; }
-
-    // Public because they need to be updatable by the stats
-    CounterMoveHistory    counterMoves;
-    ButterflyHistory      mainHistory;
-    CapturePieceToHistory captureHistory;
-    ContinuationHistory   continuationHistory[2][2];
-    PawnHistory           pawnHistory;
-    CorrectionHistory     correctionHistory;
-
-   private:
-    void iterative_deepening();
-
-    // Main search function for both PV and non-PV nodes
-    template<NodeType nodeType>
-    Value search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, bool cutNode);
-
-    // Quiescence search function, which is called by the main search
-    template<NodeType nodeType>
-    Value qsearch(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth = 0);
-
-    // Get a pointer to the search manager, only allowed to be called by the
-    // main thread.
-    SearchManager* main_manager() const {
-        assert(thread_idx == 0);
-        return static_cast<SearchManager*>(manager.get());
-    }
-
-    std::array<std::array<uint64_t, SQUARE_NB>, SQUARE_NB> effort;
-
-    LimitsType limits;
-
-    size_t                pvIdx, pvLast;
-    std::atomic<uint64_t> nodes, bestMoveChanges;
-    int                   nmpMinPly;
-
-    Value optimism[COLOR_NB];
-
-    Position  rootPos;
-    StateInfo rootState;
-    RootMoves rootMoves;
-    Depth     rootDepth, completedDepth;
-    Value     rootDelta;
-
-    size_t thread_idx;
-
-    // The main thread has a SearchManager, the others have a NullSearchManager
-    std::unique_ptr<ISearchManager> manager;
-
-    const OptionsMap&   options;
-    ThreadPool&         threads;
-    TranspositionTable& tt;
-
-    friend class Stockfish::ThreadPool;
-    friend class SearchManager;
-};
-
-}  // namespace Search
-
-}  // namespace Stockfish
-
-/*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
-
-  Stockfish is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  Stockfish is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#include <thread>
-
-// On OSX threads other than the main thread are created with a reduced stack
-// size of 512KB by default, this is too low for deep searches, which require
-// somewhat more than 1MB stack, so adjust it to TH_STACK_SIZE.
-// The implementation calls pthread_create() with the stack size parameter
-// equal to the Linux 8MB default, on platforms that support it.
-
-#if defined(__APPLE__) || defined(__MINGW32__) || defined(__MINGW64__) || defined(USE_PTHREADS)
-
-    #include <pthread.h>
-    #include <functional>
-
-namespace Stockfish {
-
-class NativeThread {
-    pthread_t thread;
-
-    static constexpr size_t TH_STACK_SIZE = 8 * 1024 * 1024;
-
-   public:
-    template<class Function, class... Args>
-    explicit NativeThread(Function&& fun, Args&&... args) {
-        auto func = new std::function<void()>(
-          std::bind(std::forward<Function>(fun), std::forward<Args>(args)...));
-
-        pthread_attr_t attr_storage, *attr = &attr_storage;
-        pthread_attr_init(attr);
-        pthread_attr_setstacksize(attr, TH_STACK_SIZE);
-
-        auto start_routine = [](void* ptr) -> void* {
-            auto f = reinterpret_cast<std::function<void()>*>(ptr);
-            // Call the function
-            (*f)();
-            delete f;
-            return nullptr;
-        };
-
-        pthread_create(&thread, attr, start_routine, func);
-    }
-
-    void join() { pthread_join(thread, nullptr); }
-};
-
-}  // namespace Stockfish
-
-#else  // Default case: use STL classes
-
-namespace Stockfish {
-
-using NativeThread = std::thread;
-
-}  // namespace Stockfish
-
-#endif
-
-namespace Stockfish {
-
-using Value = int;
-
-// Abstraction of a thread. It contains a pointer to the worker and a native thread.
-// After construction, the native thread is started with idle_loop()
-// waiting for a signal to start searching.
-// When the signal is received, the thread starts searching and when
-// the search is finished, it goes back to idle_loop() waiting for a new signal.
-class Thread {
-   public:
-    Thread(Search::SharedState&, std::unique_ptr<Search::ISearchManager>, size_t);
-    virtual ~Thread();
-
-    void   idle_loop();
-    void   start_searching();
-    void   wait_for_search_finished();
-    size_t id() const { return idx; }
-
-    std::unique_ptr<Search::Worker> worker;
-
-   private:
-    std::mutex              mutex;
-    std::condition_variable cv;
-    size_t                  idx, nthreads;
-    bool                    exit = false, searching = true;  // Set before starting std::thread
-    NativeThread            stdThread;
-};
-
-// ThreadPool struct handles all the threads-related stuff like init, starting,
-// parking and, most importantly, launching a thread. All the access to threads
-// is done through this class.
-class ThreadPool {
-
-   public:
-    ~ThreadPool() {
-        // destroy any existing thread(s)
-        if (threads.size() > 0)
-        {
-            main_thread()->wait_for_search_finished();
-
-            while (threads.size() > 0)
-                delete threads.back(), threads.pop_back();
-        }
-    }
-
-    void start_thinking(Position&, StateListPtr&, Search::LimitsType, bool = false);
-    void clear();
-    void set(Search::SharedState);
-
-    Search::SearchManager* main_manager() const {
-        return static_cast<Search::SearchManager*>(main_thread()->worker.get()->manager.get());
-    };
-    Thread*  main_thread() const { return threads.front(); }
-    uint64_t nodes_searched() const { return accumulate(&Search::Worker::nodes); }
-    void     start_searching();
-    void     wait_for_search_finished() const;
-
-    std::atomic_bool stop, abortedSearch, increaseDepth;
-
-    auto cbegin() const noexcept { return threads.cbegin(); }
-    auto begin() noexcept { return threads.begin(); }
-    auto end() noexcept { return threads.end(); }
-    auto cend() const noexcept { return threads.cend(); }
-    auto size() const noexcept { return threads.size(); }
-    auto empty() const noexcept { return threads.empty(); }
-
-   private:
-    StateListPtr         setupStates;
-    std::vector<Thread*> threads;
-
-    uint64_t accumulate(std::atomic<uint64_t> Search::Worker::*member) const {
-
-        uint64_t sum = 0;
-        for (Thread* th : threads)
-            sum += (th->worker.get()->*member).load(std::memory_order_relaxed);
-        return sum;
-    }
-};
-
-}  // namespace Stockfish
-
-/*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
-
-  Stockfish is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  Stockfish is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#include <cstddef>
-#include <cstdint>
-
-namespace Stockfish {
-
-// TTEntry struct is the 10 bytes transposition table entry, defined as below:
-//
-// key        16 bit
-// depth       8 bit
-// generation  5 bit
-// pv node     1 bit
-// bound type  2 bit
-// move       16 bit
-// value      16 bit
-// eval value 16 bit
-struct TTEntry {
-
-    Move  move() const { return Move(move16); }
-    Value value() const { return Value(value16); }
-    Value eval() const { return Value(eval16); }
-    Depth depth() const { return Depth(depth8 + DEPTH_OFFSET); }
-    bool  is_pv() const { return bool(genBound8 & 0x4); }
-    Bound bound() const { return Bound(genBound8 & 0x3); }
-    void  save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev, uint8_t generation8);
-    // The returned age is a multiple of TranspositionTable::GENERATION_DELTA
-    uint8_t relative_age(const uint8_t generation8) const;
-
-   private:
-    friend class TranspositionTable;
-
-    uint16_t key16;
-    uint8_t  depth8;
-    uint8_t  genBound8;
-    Move     move16;
-    int16_t  value16;
-    int16_t  eval16;
-};
-
-// A TranspositionTable is an array of Cluster, of size clusterCount. Each
-// cluster consists of ClusterSize number of TTEntry. Each non-empty TTEntry
-// contains information on exactly one position. The size of a Cluster should
-// divide the size of a cache line for best performance, as the cacheline is
-// prefetched when possible.
-class TranspositionTable {
-
-    static constexpr int ClusterSize = 3;
-
-    struct Cluster {
-        TTEntry entry[ClusterSize];
-        char    padding[2];  // Pad to 32 bytes
-    };
-
-    static_assert(sizeof(Cluster) == 32, "Unexpected Cluster size");
-
-    // Constants used to refresh the hash table periodically
-
-    // We have 8 bits available where the lowest 3 bits are
-    // reserved for other things.
-    static constexpr unsigned GENERATION_BITS = 3;
-    // increment for generation field
-    static constexpr int GENERATION_DELTA = (1 << GENERATION_BITS);
-    // cycle length
-    static constexpr int GENERATION_CYCLE = 255 + GENERATION_DELTA;
-    // mask to pull out generation number
-    static constexpr int GENERATION_MASK = (0xFF << GENERATION_BITS) & 0xFF;
-
-   public:
-    ~TranspositionTable() { aligned_large_pages_free(table); }
-
-    void new_search() {
-        // increment by delta to keep lower bits as is
-        generation8 += GENERATION_DELTA;
-    }
-
-    TTEntry* probe(const Key key, bool& found) const;
-    int      hashfull() const;
-    void     resize(size_t mbSize, int threadCount);
-    void     clear(size_t threadCount);
-
-    TTEntry* first_entry(const Key key) const {
-        return &table[mul_hi64(key, clusterCount)].entry[0];
-    }
-
-    uint8_t generation() const { return generation8; }
-
-   private:
-    friend struct TTEntry;
-
-    size_t   clusterCount;
-    Cluster* table       = nullptr;
-    uint8_t  generation8 = 0;  // Size must be not bigger than TTEntry::genBound8
-};
-
-}  // namespace Stockfish
-
-/*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
-
-  Stockfish is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  Stockfish is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#include <cstddef>
-#include <functional>
-#include <iosfwd>
-#include <map>
-#include <string>
-
-namespace Stockfish {
-// Define a custom comparator, because the UCI options should be case-insensitive
-struct CaseInsensitiveLess {
-    bool operator()(const std::string&, const std::string&) const;
-};
-
-class Option;
-
-class OptionsMap {
-   public:
-    void setoption(std::istringstream&);
-
-    friend std::ostream& operator<<(std::ostream&, const OptionsMap&);
-
-    Option  operator[](const std::string&) const;
-    Option& operator[](const std::string&);
-
-    std::size_t count(const std::string&) const;
-
-   private:
-    // The options container is defined as a std::map
-    using OptionsStore = std::map<std::string, Option, CaseInsensitiveLess>;
-
-    OptionsStore options_map;
-};
-
-// The Option class implements each option as specified by the UCI protocol
-class Option {
-   public:
-    using OnChange = std::function<void(const Option&)>;
-
-    Option(OnChange = nullptr);
-    Option(bool v, OnChange = nullptr);
-    Option(const char* v, OnChange = nullptr);
-    Option(double v, int minv, int maxv, OnChange = nullptr);
-    Option(const char* v, const char* cur, OnChange = nullptr);
-
-    Option& operator=(const std::string&);
-    void    operator<<(const Option&);
-    operator int() const;
-    operator std::string() const;
-    bool operator==(const char*) const;
-
-    friend std::ostream& operator<<(std::ostream&, const OptionsMap&);
-
-   private:
-    std::string defaultValue, currentValue, type;
-    int         min, max;
-    OnChange    on_change;
-};
-
-}
-
-namespace Stockfish {
-
-constexpr uint8_t MultiPV = 1;
-constexpr uint8_t MaxThreads = 15;
-constexpr bool ShowWDL = false;
-
-namespace Eval::NNUE {
-enum NetSize : int;
-}
-
-class Move;
-enum Square : int;
-using Value = int;
-
-class UCI {
-   public:
-    UCI(int argc, char** argv);
-
-    void loop();
-
-    static int         to_cp(Value v);
-    static std::string value(Value v);
-    static std::string square(Square s);
-    static std::string move(Move m, bool chess960);
-    static std::string wdl(Value v, int ply);
-    static Move        to_move(const Position& pos, std::string& str);
-
-    const std::string& workingDirectory() const { return cli.workingDirectory; }
-
-    OptionsMap options;
-
-    std::unordered_map<Eval::NNUE::NetSize, Eval::EvalFile> evalFiles;
-
-   private:
-    TranspositionTable tt;
-    ThreadPool         threads;
-    CommandLine        cli;
-
-    void go(Position& pos, std::istringstream& is, StateListPtr& states);
-    void bench(Position& pos, std::istream& args, StateListPtr& states);
-    void position(Position& pos, std::istringstream& is, StateListPtr& states);
-    void search_clear();
-    void setoption(std::istringstream& is);
-};
-
-}  // namespace Stockfish
-
-using namespace Stockfish;
-
-int main(int argc, char* argv[]) {
-
-    std::cout << engine_info() << std::endl;
-
-    Bitboards::init();
-    Position::init();
-
-    UCI uci(argc, argv);
-
-    uci.evalFiles = Eval::NNUE::load_networks(uci.workingDirectory(), uci.options, uci.evalFiles);
-
-    uci.loop();
-
-    return 0;
-}
-/*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
-
-  Stockfish is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  Stockfish is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#include <algorithm>
-#include <bitset>
-#include <initializer_list>
-
-namespace Stockfish {
-
-uint8_t PopCnt16[1 << 16];
-uint8_t SquareDistance[SQUARE_NB][SQUARE_NB];
-
-Bitboard LineBB[SQUARE_NB][SQUARE_NB];
-Bitboard BetweenBB[SQUARE_NB][SQUARE_NB];
-Bitboard PseudoAttacks[PIECE_TYPE_NB][SQUARE_NB];
-Bitboard PawnAttacks[COLOR_NB][SQUARE_NB];
-
-Magic RookMagics[SQUARE_NB];
-Magic BishopMagics[SQUARE_NB];
-
-namespace {
-
-Bitboard RookTable[0x19000];   // To store rook attacks
-Bitboard BishopTable[0x1480];  // To store bishop attacks
-
-void init_magics(PieceType pt, Bitboard table[], Magic magics[]);
-
-// Returns the bitboard of target square for the given step
-// from the given square. If the step is off the board, returns empty bitboard.
-Bitboard safe_destination(Square s, int step) {
-    Square to = Square(s + step);
-    return is_ok(to) && distance(s, to) <= 2 ? square_bb(to) : Bitboard(0);
-}
-}
-
-// Returns an ASCII representation of a bitboard suitable
-// to be printed to standard output. Useful for debugging.
-std::string Bitboards::pretty(Bitboard b) {
-
-    std::string s = "+---+---+---+---+---+---+---+---+\n";
-
-    for (Rank r = RANK_8; r >= RANK_1; --r)
-    {
-        for (File f = FILE_A; f <= FILE_H; ++f)
-            s += b & make_square(f, r) ? "| X " : "|   ";
-
-        s += "| " + std::to_string(1 + r) + "\n+---+---+---+---+---+---+---+---+\n";
-    }
-    s += "  a   b   c   d   e   f   g   h\n";
-
-    return s;
-}
-
-// Initializes various bitboard tables. It is called at
-// startup and relies on global objects to be already zero-initialized.
-void Bitboards::init() {
-
-    for (unsigned i = 0; i < (1 << 16); ++i)
-        PopCnt16[i] = uint8_t(std::bitset<16>(i).count());
-
-    for (Square s1 = SQ_A1; s1 <= SQ_H8; ++s1)
-        for (Square s2 = SQ_A1; s2 <= SQ_H8; ++s2)
-            SquareDistance[s1][s2] = std::max(distance<File>(s1, s2), distance<Rank>(s1, s2));
-
-    init_magics(ROOK, RookTable, RookMagics);
-    init_magics(BISHOP, BishopTable, BishopMagics);
-
-    for (Square s1 = SQ_A1; s1 <= SQ_H8; ++s1)
-    {
-        PawnAttacks[WHITE][s1] = pawn_attacks_bb<WHITE>(square_bb(s1));
-        PawnAttacks[BLACK][s1] = pawn_attacks_bb<BLACK>(square_bb(s1));
-
-        for (int step : {-9, -8, -7, -1, 1, 7, 8, 9})
-            PseudoAttacks[KING][s1] |= safe_destination(s1, step);
-
-        for (int step : {-17, -15, -10, -6, 6, 10, 15, 17})
-            PseudoAttacks[KNIGHT][s1] |= safe_destination(s1, step);
-
-        PseudoAttacks[QUEEN][s1] = PseudoAttacks[BISHOP][s1] = attacks_bb<BISHOP>(s1, 0);
-        PseudoAttacks[QUEEN][s1] |= PseudoAttacks[ROOK][s1]  = attacks_bb<ROOK>(s1, 0);
-
-        for (PieceType pt : {BISHOP, ROOK})
-            for (Square s2 = SQ_A1; s2 <= SQ_H8; ++s2)
-            {
-                if (PseudoAttacks[pt][s1] & s2)
-                {
-                    LineBB[s1][s2] = (attacks_bb(pt, s1, 0) & attacks_bb(pt, s2, 0)) | s1 | s2;
-                    BetweenBB[s1][s2] =
-                      (attacks_bb(pt, s1, square_bb(s2)) & attacks_bb(pt, s2, square_bb(s1)));
-                }
-                BetweenBB[s1][s2] |= s2;
-            }
-    }
-}
-
-namespace {
-
-Bitboard sliding_attack(PieceType pt, Square sq, Bitboard occupied) {
-
-    Bitboard  attacks             = 0;
-    Direction RookDirections[4]   = {NORTH, SOUTH, EAST, WEST};
-    Direction BishopDirections[4] = {NORTH_EAST, SOUTH_EAST, SOUTH_WEST, NORTH_WEST};
-
-    for (Direction d : (pt == ROOK ? RookDirections : BishopDirections))
-    {
-        Square s = sq;
-        while (safe_destination(s, d) && !(occupied & s))
-            attacks |= (s += d);
-    }
-
-    return attacks;
-}
-
-// Computes all rook and bishop attacks at startup. Magic
-// bitboards are used to look up attacks of sliding pieces. As a reference see
-// www.chessprogramming.org/Magic_Bitboards. In particular, here we use the so
-// called "fancy" approach.
-void init_magics(PieceType pt, Bitboard table[], Magic magics[]) {
-
-    // Optimal PRNG seeds to pick the correct magics in the shortest time
-    int seeds[][RANK_NB] = {{8977, 44560, 54343, 38998, 5731, 95205, 104912, 17020},
-                            {728, 10316, 55013, 32803, 12281, 15100, 16645, 255}};
-
-    Bitboard occupancy[4096], reference[4096], edges, b;
-    int      epoch[4096] = {}, cnt = 0, size = 0;
-
-    for (Square s = SQ_A1; s <= SQ_H8; ++s)
-    {
-        // Board edges are not considered in the relevant occupancies
-        edges = ((Rank1BB | Rank8BB) & ~rank_bb(s)) | ((FileABB | FileHBB) & ~file_bb(s));
-
-        // Given a square 's', the mask is the bitboard of sliding attacks from
-        // 's' computed on an empty board. The index must be big enough to contain
-        // all the attacks for each possible subset of the mask and so is 2 power
-        // the number of 1s of the mask. Hence we deduce the size of the shift to
-        // apply to the 64 or 32 bits word to get the index.
-        Magic& m = magics[s];
-        m.mask   = sliding_attack(pt, s, 0) & ~edges;
-        m.shift  = (Is64Bit ? 64 : 32) - popcount(m.mask);
-
-        // Set the offset for the attacks table of the square. We have individual
-        // table sizes for each square with "Fancy Magic Bitboards".
-        m.attacks = s == SQ_A1 ? table : magics[s - 1].attacks + size;
-
-        // Use Carry-Rippler trick to enumerate all subsets of masks[s] and
-        // store the corresponding sliding attack bitboard in reference[].
-        b = size = 0;
-        do
-        {
-            occupancy[size] = b;
-            reference[size] = sliding_attack(pt, s, b);
-
-            if (HasPext)
-                m.attacks[pext(b, m.mask)] = reference[size];
-
-            size++;
-            b = (b - m.mask) & m.mask;
-        } while (b);
-
-        if (HasPext)
-            continue;
-
-        PRNG rng(seeds[Is64Bit][rank_of(s)]);
-
-        // Find a magic for square 's' picking up an (almost) random number
-        // until we find the one that passes the verification test.
-        for (int i = 0; i < size;)
-        {
-            for (m.magic = 0; popcount((m.magic * m.mask) >> 56) < 6;)
-                m.magic = rng.sparse_rand<Bitboard>();
-
-            // A good magic must map every possible occupancy to an index that
-            // looks up the correct sliding attack in the attacks[s] database.
-            // Note that we build up the database for square 's' as a side
-            // effect of verifying the magic. Keep track of the attempt count
-            // and save it in epoch[], little speed-up trick to avoid resetting
-            // m.attacks[] after every failed attempt.
-            for (++cnt, i = 0; i < size; ++i)
-            {
-                unsigned idx = m.index(occupancy[i]);
-
-                if (epoch[idx] < cnt)
-                {
-                    epoch[idx]     = cnt;
-                    m.attacks[idx] = reference[i];
-                }
-                else if (m.attacks[idx] != reference[i])
-                    break;
-            }
-        }
-    }
-}
-}
-
-}  // namespace Stockfish
-/*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
-
-  Stockfish is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  Stockfish is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#include <algorithm>
-#include <cassert>
-#include <cmath>
-#include <cstdlib>
-#include <fstream>
 #include <iostream>
 #include <optional>
-#include <unordered_map>
-#include <vector>
-
-/**
- * @file incbin.h
- * @author Dale Weiler
- * @brief Utility for including binary files
- *
- * Facilities for including binary files into the current translation unit
- * and making use of them externally in other translation units.
- */
-
-#include <limits.h>
-#if   defined(__AVX512BW__) || \
-      defined(__AVX512CD__) || \
-      defined(__AVX512DQ__) || \
-      defined(__AVX512ER__) || \
-      defined(__AVX512PF__) || \
-      defined(__AVX512VL__) || \
-      defined(__AVX512F__)
-# define INCBIN_ALIGNMENT_INDEX 6
-#elif defined(__AVX__)      || \
-      defined(__AVX2__)
-# define INCBIN_ALIGNMENT_INDEX 5
-#elif defined(__SSE__)      || \
-      defined(__SSE2__)     || \
-      defined(__SSE3__)     || \
-      defined(__SSSE3__)    || \
-      defined(__SSE4_1__)   || \
-      defined(__SSE4_2__)   || \
-      defined(__neon__)
-# define INCBIN_ALIGNMENT_INDEX 4
-#elif ULONG_MAX != 0xffffffffu
-# define INCBIN_ALIGNMENT_INDEX 3
-# else
-# define INCBIN_ALIGNMENT_INDEX 2
-#endif
-
-/* Lookup table of (1 << n) where `n' is `INCBIN_ALIGNMENT_INDEX' */
-#define INCBIN_ALIGN_SHIFT_0 1
-#define INCBIN_ALIGN_SHIFT_1 2
-#define INCBIN_ALIGN_SHIFT_2 4
-#define INCBIN_ALIGN_SHIFT_3 8
-#define INCBIN_ALIGN_SHIFT_4 16
-#define INCBIN_ALIGN_SHIFT_5 32
-#define INCBIN_ALIGN_SHIFT_6 64
-
-/* Actual alignment value */
-#define INCBIN_ALIGNMENT \
-    INCBIN_CONCATENATE( \
-        INCBIN_CONCATENATE(INCBIN_ALIGN_SHIFT, _), \
-        INCBIN_ALIGNMENT_INDEX)
-
-/* Stringize */
-#define INCBIN_STR(X) \
-    #X
-#define INCBIN_STRINGIZE(X) \
-    INCBIN_STR(X)
-/* Concatenate */
-#define INCBIN_CAT(X, Y) \
-    X ## Y
-#define INCBIN_CONCATENATE(X, Y) \
-    INCBIN_CAT(X, Y)
-/* Deferred macro expansion */
-#define INCBIN_EVAL(X) \
-    X
-#define INCBIN_INVOKE(N, ...) \
-    INCBIN_EVAL(N(__VA_ARGS__))
-
-/* Green Hills uses a different directive for including binary data */
-#if defined(__ghs__)
-#  if (__ghs_asm == 2)
-#    define INCBIN_MACRO ".file"
-/* Or consider the ".myrawdata" entry in the ld file */
-#  else
-#    define INCBIN_MACRO "\tINCBIN"
-#  endif
-#else
-#  define INCBIN_MACRO ".incbin"
-#endif
-
-#ifndef _MSC_VER
-#  define INCBIN_ALIGN \
-    __attribute__((aligned(INCBIN_ALIGNMENT)))
-#else
-#  define INCBIN_ALIGN __declspec(align(INCBIN_ALIGNMENT))
-#endif
-
-#if defined(__arm__) || /* GNU C and RealView */ \
-    defined(__arm) || /* Diab */ \
-    defined(_ARM) /* ImageCraft */
-#  define INCBIN_ARM
-#endif
-
-#ifdef __GNUC__
-/* Utilize .balign where supported */
-#  define INCBIN_ALIGN_HOST ".balign " INCBIN_STRINGIZE(INCBIN_ALIGNMENT) "\n"
-#  define INCBIN_ALIGN_BYTE ".balign 1\n"
-#elif defined(INCBIN_ARM)
-/*
- * On arm assemblers, the alignment value is calculated as (1 << n) where `n' is
- * the shift count. This is the value passed to `.align'
- */
-#  define INCBIN_ALIGN_HOST ".align " INCBIN_STRINGIZE(INCBIN_ALIGNMENT_INDEX) "\n"
-#  define INCBIN_ALIGN_BYTE ".align 0\n"
-#else
-/* We assume other inline assembler's treat `.align' as `.balign' */
-#  define INCBIN_ALIGN_HOST ".align " INCBIN_STRINGIZE(INCBIN_ALIGNMENT) "\n"
-#  define INCBIN_ALIGN_BYTE ".align 1\n"
-#endif
-
-/* INCBIN_CONST is used by incbin.c generated files */
-#if defined(__cplusplus)
-#  define INCBIN_EXTERNAL extern "C"
-#  define INCBIN_CONST    extern const
-#else
-#  define INCBIN_EXTERNAL extern
-#  define INCBIN_CONST    const
-#endif
-
-/**
- * @brief Optionally override the linker section into which data is emitted.
- *
- * @warning If you use this facility, you'll have to deal with platform-specific linker output
- * section naming on your own
- *
- * Overriding the default linker output section, e.g for esp8266/Arduino:
- * @code
- * #define INCBIN_OUTPUT_SECTION ".irom.text"
- * #include "incbin.h"
- * INCBIN(Foo, "foo.txt");
- * // Data is emitted into program memory that never gets copied to RAM
- * @endcode
- */
-#if !defined(INCBIN_OUTPUT_SECTION)
-#  if defined(__APPLE__)
-#    define INCBIN_OUTPUT_SECTION         ".const_data"
-#  else
-#    define INCBIN_OUTPUT_SECTION         ".rodata"
-#  endif
-#endif
-
-#if defined(__APPLE__)
-/* The directives are different for Apple-branded compilers */
-#  define INCBIN_SECTION         INCBIN_OUTPUT_SECTION "\n"
-#  define INCBIN_GLOBAL(NAME)    ".globl " INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME "\n"
-#  define INCBIN_INT             ".long "
-#  define INCBIN_MANGLE          "_"
-#  define INCBIN_BYTE            ".byte "
-#  define INCBIN_TYPE(...)
-#else
-#  define INCBIN_SECTION         ".section " INCBIN_OUTPUT_SECTION "\n"
-#  define INCBIN_GLOBAL(NAME)    ".global " INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME "\n"
-#  if defined(__ghs__)
-#    define INCBIN_INT           ".word "
-#  else
-#    define INCBIN_INT           ".int "
-#  endif
-#  if defined(__USER_LABEL_PREFIX__)
-#    define INCBIN_MANGLE        INCBIN_STRINGIZE(__USER_LABEL_PREFIX__)
-#  else
-#    define INCBIN_MANGLE        ""
-#  endif
-#  if defined(INCBIN_ARM)
-/* On arm assemblers, `@' is used as a line comment token */
-#    define INCBIN_TYPE(NAME)    ".type " INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME ", %object\n"
-#  elif defined(__MINGW32__) || defined(__MINGW64__)
-/* Mingw doesn't support this directive either */
-#    define INCBIN_TYPE(NAME)
-#  else
-/* It's safe to use `@' on other architectures */
-#    define INCBIN_TYPE(NAME)    ".type " INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME ", @object\n"
-#  endif
-#  define INCBIN_BYTE            ".byte "
-#endif
-
-/* List of style types used for symbol names */
-#define INCBIN_STYLE_CAMEL 0
-#define INCBIN_STYLE_SNAKE 1
-
-/**
- * @brief Specify the prefix to use for symbol names.
- *
- * By default this is `g', producing symbols of the form:
- * @code
- * #include "incbin.h"
- * INCBIN(Foo, "foo.txt");
- *
- * // Now you have the following symbols:
- * // const unsigned char gFooData[];
- * // const unsigned char *const gFooEnd;
- * // const unsigned int gFooSize;
- * @endcode
- *
- * If however you specify a prefix before including: e.g:
- * @code
- * #define INCBIN_PREFIX incbin
- * #include "incbin.h"
- * INCBIN(Foo, "foo.txt");
- *
- * // Now you have the following symbols instead:
- * // const unsigned char incbinFooData[];
- * // const unsigned char *const incbinFooEnd;
- * // const unsigned int incbinFooSize;
- * @endcode
- */
-#if !defined(INCBIN_PREFIX)
-#  define INCBIN_PREFIX g
-#endif
-
-/**
- * @brief Specify the style used for symbol names.
- *
- * Possible options are
- * - INCBIN_STYLE_CAMEL "CamelCase"
- * - INCBIN_STYLE_SNAKE "snake_case"
- *
- * Default option is *INCBIN_STYLE_CAMEL* producing symbols of the form:
- * @code
- * #include "incbin.h"
- * INCBIN(Foo, "foo.txt");
- *
- * // Now you have the following symbols:
- * // const unsigned char <prefix>FooData[];
- * // const unsigned char *const <prefix>FooEnd;
- * // const unsigned int <prefix>FooSize;
- * @endcode
- *
- * If however you specify a style before including: e.g:
- * @code
- * #define INCBIN_STYLE INCBIN_STYLE_SNAKE
- * #include "incbin.h"
- * INCBIN(foo, "foo.txt");
- *
- * // Now you have the following symbols:
- * // const unsigned char <prefix>foo_data[];
- * // const unsigned char *const <prefix>foo_end;
- * // const unsigned int <prefix>foo_size;
- * @endcode
- */
-#if !defined(INCBIN_STYLE)
-#  define INCBIN_STYLE INCBIN_STYLE_CAMEL
-#endif
-
-/* Style lookup tables */
-#define INCBIN_STYLE_0_DATA Data
-#define INCBIN_STYLE_0_END End
-#define INCBIN_STYLE_0_SIZE Size
-#define INCBIN_STYLE_1_DATA _data
-#define INCBIN_STYLE_1_END _end
-#define INCBIN_STYLE_1_SIZE _size
-
-/* Style lookup: returning identifier */
-#define INCBIN_STYLE_IDENT(TYPE) \
-    INCBIN_CONCATENATE( \
-        INCBIN_STYLE_, \
-        INCBIN_CONCATENATE( \
-            INCBIN_EVAL(INCBIN_STYLE), \
-            INCBIN_CONCATENATE(_, TYPE)))
-
-/* Style lookup: returning string literal */
-#define INCBIN_STYLE_STRING(TYPE) \
-    INCBIN_STRINGIZE( \
-        INCBIN_STYLE_IDENT(TYPE)) \
-
-/* Generate the global labels by indirectly invoking the macro
- * with our style type and concatenate the name against them. */
-#define INCBIN_GLOBAL_LABELS(NAME, TYPE) \
-    INCBIN_INVOKE( \
-        INCBIN_GLOBAL, \
-        INCBIN_CONCATENATE( \
-            NAME, \
-            INCBIN_INVOKE( \
-                INCBIN_STYLE_IDENT, \
-                TYPE))) \
-    INCBIN_INVOKE( \
-        INCBIN_TYPE, \
-        INCBIN_CONCATENATE( \
-            NAME, \
-            INCBIN_INVOKE( \
-                INCBIN_STYLE_IDENT, \
-                TYPE)))
-
-/**
- * @brief Externally reference binary data included in another translation unit.
- *
- * Produces three external symbols that reference the binary data included in
- * another translation unit.
- *
- * The symbol names are a concatenation of `INCBIN_PREFIX' before *NAME*; with
- * "Data", as well as "End" and "Size" after. An example is provided below.
- *
- * @param NAME The name given for the binary data
- *
- * @code
- * INCBIN_EXTERN(Foo);
- *
- * // Now you have the following symbols:
- * // extern const unsigned char <prefix>FooData[];
- * // extern const unsigned char *const <prefix>FooEnd;
- * // extern const unsigned int <prefix>FooSize;
- * @endcode
- */
-#define INCBIN_EXTERN(NAME) \
-    INCBIN_EXTERNAL const INCBIN_ALIGN unsigned char \
-        INCBIN_CONCATENATE( \
-            INCBIN_CONCATENATE(INCBIN_PREFIX, NAME), \
-            INCBIN_STYLE_IDENT(DATA))[]; \
-    INCBIN_EXTERNAL const INCBIN_ALIGN unsigned char *const \
-    INCBIN_CONCATENATE( \
-        INCBIN_CONCATENATE(INCBIN_PREFIX, NAME), \
-        INCBIN_STYLE_IDENT(END)); \
-    INCBIN_EXTERNAL const unsigned int \
-        INCBIN_CONCATENATE( \
-            INCBIN_CONCATENATE(INCBIN_PREFIX, NAME), \
-            INCBIN_STYLE_IDENT(SIZE))
-
-/**
- * @brief Include a binary file into the current translation unit.
- *
- * Includes a binary file into the current translation unit, producing three symbols
- * for objects that encode the data and size respectively.
- *
- * The symbol names are a concatenation of `INCBIN_PREFIX' before *NAME*; with
- * "Data", as well as "End" and "Size" after. An example is provided below.
- *
- * @param NAME The name to associate with this binary data (as an identifier.)
- * @param FILENAME The file to include (as a string literal.)
- *
- * @code
- * INCBIN(Icon, "icon.png");
- *
- * // Now you have the following symbols:
- * // const unsigned char <prefix>IconData[];
- * // const unsigned char *const <prefix>IconEnd;
- * // const unsigned int <prefix>IconSize;
- * @endcode
- *
- * @warning This must be used in global scope
- * @warning The identifiers may be different if INCBIN_STYLE is not default
- *
- * To externally reference the data included by this in another translation unit
- * please @see INCBIN_EXTERN.
- */
-#ifdef _MSC_VER
-#define INCBIN(NAME, FILENAME) \
-    INCBIN_EXTERN(NAME)
-#else
-#define INCBIN(NAME, FILENAME) \
-    __asm__(INCBIN_SECTION \
-            INCBIN_GLOBAL_LABELS(NAME, DATA) \
-            INCBIN_ALIGN_HOST \
-            INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME INCBIN_STYLE_STRING(DATA) ":\n" \
-            INCBIN_MACRO " \"" FILENAME "\"\n" \
-            INCBIN_GLOBAL_LABELS(NAME, END) \
-            INCBIN_ALIGN_BYTE \
-            INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME INCBIN_STYLE_STRING(END) ":\n" \
-                INCBIN_BYTE "1\n" \
-            INCBIN_GLOBAL_LABELS(NAME, SIZE) \
-            INCBIN_ALIGN_HOST \
-            INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME INCBIN_STYLE_STRING(SIZE) ":\n" \
-                INCBIN_INT INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME INCBIN_STYLE_STRING(END) " - " \
-                           INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME INCBIN_STYLE_STRING(DATA) "\n" \
-            INCBIN_ALIGN_HOST \
-            ".text\n" \
-    ); \
-    INCBIN_EXTERN(NAME)
-
-#endif
-
-/*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
-
-  Stockfish is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  Stockfish is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-// header used in NNUE evaluation function
-
-#include <cstdint>
-#include <iosfwd>
-#include <memory>
-#include <optional>
 #include <string>
-#include <unordered_map>
+#include <utility>
 
 /*
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
@@ -5311,240 +3690,1320 @@ class FeatureTransformer {
 
 }  // namespace Stockfish::Eval::NNUE
 
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <cstddef>
+#include <string>
+
 namespace Stockfish {
+
 class Position;
 
-namespace Eval {
-struct EvalFile;
-}
+namespace Eval::NNUE {
 
-}
+struct EvalFile {
+    // Default net name, will use one of the EvalFileDefaultName* macros defined
+    // in evaluate.h
+    std::string defaultName;
+    // Selected net name, either via uci option or default
+    std::string current;
+    // Net description extracted from the net file
+    std::string netDescription;
+};
+
+struct NnueEvalTrace {
+    static_assert(LayerStacks == PSQTBuckets);
+
+    Value       psqt[LayerStacks];
+    Value       positional[LayerStacks];
+    std::size_t correctBucket;
+};
+
+struct Networks;
+
+std::string trace(Position& pos, const Networks& networks);
+void        hint_common_parent_position(const Position& pos, const Networks& networks);
+
+}  // namespace Stockfish::Eval::NNUE
+}  // namespace Stockfish
 
 namespace Stockfish::Eval::NNUE {
 
-// Hash value of evaluation function structure
-constexpr std::uint32_t HashValue[2] = {
-  FeatureTransformer<TransformedFeatureDimensionsBig, nullptr>::get_hash_value()
-    ^ Network<TransformedFeatureDimensionsBig, L2Big, L3Big>::get_hash_value(),
-  FeatureTransformer<TransformedFeatureDimensionsSmall, nullptr>::get_hash_value()
-    ^ Network<TransformedFeatureDimensionsSmall, L2Small, L3Small>::get_hash_value()};
+enum class EmbeddedNNUEType {
+    BIG,
+    SMALL,
+};
 
-// Deleter for automating release of memory area
-template<typename T>
-struct AlignedDeleter {
-    void operator()(T* ptr) const {
-        ptr->~T();
-        std_aligned_free(ptr);
+template<typename Arch, typename Transformer>
+class Network {
+   public:
+    Network(EvalFile file, EmbeddedNNUEType type) :
+        evalFile(file),
+        embeddedType(type) {}
+
+    void load(const std::string& rootDirectory, std::string evalfilePath);
+    bool save(const std::optional<std::string>& filename) const;
+
+    Value evaluate(const Position& pos,
+                   bool            adjusted   = false,
+                   int*            complexity = nullptr,
+                   bool            psqtOnly   = false) const;
+
+    void hint_common_access(const Position& pos, bool psqtOnl) const;
+
+    void          verify(std::string evalfilePath) const;
+    NnueEvalTrace trace_evaluate(const Position& pos) const;
+
+   private:
+    void load_user_net(const std::string&, const std::string&);
+    void load_internal();
+
+    void initialize();
+
+    bool                       save(std::ostream&, const std::string&, const std::string&) const;
+    std::optional<std::string> load(std::istream&);
+
+    bool read_header(std::istream&, std::uint32_t*, std::string*) const;
+    bool write_header(std::ostream&, std::uint32_t, const std::string&) const;
+
+    bool read_parameters(std::istream&, std::string&) const;
+    bool write_parameters(std::ostream&, const std::string&) const;
+
+    // Input feature converter
+    LargePagePtr<Transformer> featureTransformer;
+
+    // Evaluation function
+    AlignedPtr<Arch> network[LayerStacks];
+
+    EvalFile         evalFile;
+    EmbeddedNNUEType embeddedType;
+
+    // Hash value of evaluation function structure
+    static constexpr std::uint32_t hash = Transformer::get_hash_value() ^ Arch::get_hash_value();
+};
+
+// Definitions of the network types
+using SmallFeatureTransformer =
+  FeatureTransformer<TransformedFeatureDimensionsSmall, &StateInfo::accumulatorSmall>;
+using SmallNetworkArchitecture =
+  NetworkArchitecture<TransformedFeatureDimensionsSmall, L2Small, L3Small>;
+
+using BigFeatureTransformer =
+  FeatureTransformer<TransformedFeatureDimensionsBig, &StateInfo::accumulatorBig>;
+using BigNetworkArchitecture = NetworkArchitecture<TransformedFeatureDimensionsBig, L2Big, L3Big>;
+
+using NetworkBig   = Network<BigNetworkArchitecture, BigFeatureTransformer>;
+using NetworkSmall = Network<SmallNetworkArchitecture, SmallFeatureTransformer>;
+
+struct Networks {
+    Networks(NetworkBig&& nB, NetworkSmall&& nS) :
+        big(std::move(nB)),
+        small(std::move(nS)) {}
+
+    NetworkBig   big;
+    NetworkSmall small;
+};
+
+}  // namespace Stockfish
+
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <array>
+#include <atomic>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
+#include <limits>
+#include <type_traits>  // IWYU pragma: keep
+
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <algorithm>  // IWYU pragma: keep
+#include <cstddef>
+
+namespace Stockfish {
+
+class Position;
+
+enum GenType {
+    CAPTURES,
+    QUIETS,
+    QUIET_CHECKS,
+    EVASIONS,
+    NON_EVASIONS,
+    LEGAL
+};
+
+struct ExtMove: public Move {
+    int value;
+
+    void operator=(Move m) { data = m.raw(); }
+
+    // Inhibit unwanted implicit conversions to Move
+    // with an ambiguity that yields to a compile error.
+    operator float() const = delete;
+};
+
+inline bool operator<(const ExtMove& f, const ExtMove& s) { return f.value < s.value; }
+
+template<GenType>
+ExtMove* generate(const Position& pos, ExtMove* moveList);
+
+// The MoveList struct wraps the generate() function and returns a convenient
+// list of moves. Using MoveList is sometimes preferable to directly calling
+// the lower level generate() function.
+template<GenType T>
+struct MoveList {
+
+    explicit MoveList(const Position& pos) :
+        last(generate<T>(pos, moveList)) {}
+    const ExtMove* begin() const { return moveList; }
+    const ExtMove* end() const { return last; }
+    size_t         size() const { return last - moveList; }
+    bool           contains(Move move) const { return std::find(begin(), end(), move) != end(); }
+
+   private:
+    ExtMove moveList[MAX_MOVES], *last;
+};
+
+}  // namespace Stockfish
+
+namespace Stockfish {
+
+constexpr int PAWN_HISTORY_SIZE        = 512;    // has to be a power of 2
+constexpr int CORRECTION_HISTORY_SIZE  = 16384;  // has to be a power of 2
+constexpr int CORRECTION_HISTORY_LIMIT = 1024;
+
+static_assert((PAWN_HISTORY_SIZE & (PAWN_HISTORY_SIZE - 1)) == 0,
+              "PAWN_HISTORY_SIZE has to be a power of 2");
+
+static_assert((CORRECTION_HISTORY_SIZE & (CORRECTION_HISTORY_SIZE - 1)) == 0,
+              "CORRECTION_HISTORY_SIZE has to be a power of 2");
+
+enum PawnHistoryType {
+    Normal,
+    Correction
+};
+
+template<PawnHistoryType T = Normal>
+inline int pawn_structure_index(const Position& pos) {
+    return pos.pawn_key() & ((T == Normal ? PAWN_HISTORY_SIZE : CORRECTION_HISTORY_SIZE) - 1);
+}
+
+// StatsEntry stores the stat table value. It is usually a number but could
+// be a move or even a nested history. We use a class instead of a naked value
+// to directly call history update operator<<() on the entry so to use stats
+// tables at caller sites as simple multi-dim arrays.
+template<typename T, int D>
+class StatsEntry {
+
+    T entry;
+
+   public:
+    void operator=(const T& v) { entry = v; }
+    T*   operator&() { return &entry; }
+    T*   operator->() { return &entry; }
+    operator const T&() const { return entry; }
+
+    void operator<<(int bonus) {
+        static_assert(D <= std::numeric_limits<T>::max(), "D overflows T");
+
+        // Make sure that bonus is in range [-D, D]
+        int clampedBonus = std::clamp(bonus, -D, D);
+        entry += clampedBonus - entry * std::abs(clampedBonus) / D;
+
+        assert(std::abs(entry) <= D);
     }
 };
 
-template<typename T>
-struct LargePageDeleter {
-    void operator()(T* ptr) const {
-        ptr->~T();
-        aligned_large_pages_free(ptr);
+// Stats is a generic N-dimensional array used to store various statistics.
+// The first template parameter T is the base type of the array, and the second
+// template parameter D limits the range of updates in [-D, D] when we update
+// values with the << operator, while the last parameters (Size and Sizes)
+// encode the dimensions of the array.
+template<typename T, int D, int Size, int... Sizes>
+struct Stats: public std::array<Stats<T, D, Sizes...>, Size> {
+    using stats = Stats<T, D, Size, Sizes...>;
+
+    void fill(const T& v) {
+
+        // For standard-layout 'this' points to the first struct member
+        assert(std::is_standard_layout_v<stats>);
+
+        using entry = StatsEntry<T, D>;
+        entry* p    = reinterpret_cast<entry*>(this);
+        std::fill(p, p + sizeof(*this) / sizeof(entry), v);
     }
 };
 
-template<typename T>
-using AlignedPtr = std::unique_ptr<T, AlignedDeleter<T>>;
+template<typename T, int D, int Size>
+struct Stats<T, D, Size>: public std::array<StatsEntry<T, D>, Size> {};
 
-template<typename T>
-using LargePagePtr = std::unique_ptr<T, LargePageDeleter<T>>;
+// In stats table, D=0 means that the template parameter is not used
+enum StatsParams {
+    NOT_USED = 0
+};
+enum StatsType {
+    NoCaptures,
+    Captures
+};
 
-template<NetSize Net_Size>
-Value evaluate(const Position& pos,
-               bool            adjusted   = false,
-               int*            complexity = nullptr,
-               bool            psqtOnly   = false);
-void  hint_common_parent_position(const Position& pos);
+// ButterflyHistory records how often quiet moves have been successful or unsuccessful
+// during the current search, and is used for reduction and move ordering decisions.
+// It uses 2 tables (one for each color) indexed by the move's from and to squares,
+// see www.chessprogramming.org/Butterfly_Boards (~11 elo)
+using ButterflyHistory = Stats<int16_t, 7183, COLOR_NB, int(SQUARE_NB) * int(SQUARE_NB)>;
 
-std::optional<std::string> load_eval(std::istream& stream, NetSize netSize);
-bool                       save_eval(std::ostream&      stream,
-                                     NetSize            netSize,
-                                     const std::string& name,
-                                     const std::string& netDescription);
-bool                       save_eval(const std::optional<std::string>& filename,
-                                     NetSize                           netSize,
-                                     const std::unordered_map<Eval::NNUE::NetSize, Eval::EvalFile>&);
+// CounterMoveHistory stores counter moves indexed by [piece][to] of the previous
+// move, see www.chessprogramming.org/Countermove_Heuristic
+using CounterMoveHistory = Stats<Move, NOT_USED, PIECE_NB, SQUARE_NB>;
 
-}  // namespace Stockfish::Eval::NNUE
+// CapturePieceToHistory is addressed by a move's [piece][to][captured piece type]
+using CapturePieceToHistory = Stats<int16_t, 10692, PIECE_NB, SQUARE_NB, PIECE_TYPE_NB>;
 
-// Macro to embed the default efficiently updatable neural network (NNUE) file
-// data in the engine binary (using incbin.h, by Dale Weiler).
-// This macro invocation will declare the following three variables
-//     const unsigned char        gEmbeddedNNUEData[];  // a pointer to the embedded data
-//     const unsigned char *const gEmbeddedNNUEEnd;     // a marker to the end
-//     const unsigned int         gEmbeddedNNUESize;    // the size of the embedded file
-// Note that this does not work in Microsoft Visual Studio.
-#if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF)
-INCBIN(EmbeddedNNUEBig, EvalFileDefaultNameBig);
-INCBIN(EmbeddedNNUESmall, EvalFileDefaultNameSmall);
-#define NETEMBED
-#else
-const unsigned char        gEmbeddedNNUEBigData[1]   = {0x0};
-const unsigned char* const gEmbeddedNNUEBigEnd       = &gEmbeddedNNUEBigData[1];
-const unsigned int         gEmbeddedNNUEBigSize      = 1;
-const unsigned char        gEmbeddedNNUESmallData[1] = {0x0};
-const unsigned char* const gEmbeddedNNUESmallEnd     = &gEmbeddedNNUESmallData[1];
-const unsigned int         gEmbeddedNNUESmallSize    = 1;
+// PieceToHistory is like ButterflyHistory but is addressed by a move's [piece][to]
+using PieceToHistory = Stats<int16_t, 29952, PIECE_NB, SQUARE_NB>;
+
+// ContinuationHistory is the combined history of a given pair of moves, usually
+// the current one given a previous one. The nested history table is based on
+// PieceToHistory instead of ButterflyBoards.
+// (~63 elo)
+using ContinuationHistory = Stats<PieceToHistory, NOT_USED, PIECE_NB, SQUARE_NB>;
+
+// PawnHistory is addressed by the pawn structure and a move's [piece][to]
+using PawnHistory = Stats<int16_t, 8192, PAWN_HISTORY_SIZE, PIECE_NB, SQUARE_NB>;
+
+// CorrectionHistory is addressed by color and pawn structure
+using CorrectionHistory =
+  Stats<int16_t, CORRECTION_HISTORY_LIMIT, COLOR_NB, CORRECTION_HISTORY_SIZE>;
+
+// MovePicker class is used to pick one pseudo-legal move at a time from the
+// current position. The most important method is next_move(), which returns a
+// new pseudo-legal move each time it is called, until there are no moves left,
+// when Move::none() is returned. In order to improve the efficiency of the
+// alpha-beta algorithm, MovePicker attempts to return the moves which are most
+// likely to get a cut-off first.
+class MovePicker {
+
+    enum PickType {
+        Next,
+        Best
+    };
+
+   public:
+    MovePicker(const MovePicker&)            = delete;
+    MovePicker& operator=(const MovePicker&) = delete;
+    MovePicker(const Position&,
+               Move,
+               Depth,
+               const ButterflyHistory*,
+               const CapturePieceToHistory*,
+               const PieceToHistory**,
+               const PawnHistory*,
+               Move,
+               const Move*);
+    MovePicker(const Position&,
+               Move,
+               Depth,
+               const ButterflyHistory*,
+               const CapturePieceToHistory*,
+               const PieceToHistory**,
+               const PawnHistory*);
+    MovePicker(const Position&, Move, int, const CapturePieceToHistory*);
+    Move next_move(bool skipQuiets = false);
+
+   private:
+    template<PickType T, typename Pred>
+    Move select(Pred);
+    template<GenType>
+    void     score();
+    ExtMove* begin() { return cur; }
+    ExtMove* end() { return endMoves; }
+
+    const Position&              pos;
+    const ButterflyHistory*      mainHistory;
+    const CapturePieceToHistory* captureHistory;
+    const PieceToHistory**       continuationHistory;
+    const PawnHistory*           pawnHistory;
+    Move                         ttMove;
+    ExtMove refutations[3], *cur, *endMoves, *endBadCaptures, *beginBadQuiets, *endBadQuiets;
+    int     stage;
+    int     threshold;
+    Depth   depth;
+    ExtMove moves[MAX_MOVES];
+};
+
+}  // namespace Stockfish
+
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <cstddef>
+#include <cstdint>
+
+namespace Stockfish {
+
+class OptionsMap;
+
+namespace Search {
+struct LimitsType;
+}
+
+// The TimeManagement class computes the optimal time to think depending on
+// the maximum available time, the game move number, and other parameters.
+class TimeManagement {
+   public:
+    void init(Search::LimitsType& limits, Color us, int ply, const OptionsMap& options);
+
+    TimePoint optimum() const;
+    TimePoint maximum() const;
+    TimePoint elapsed() const;
+
+   private:
+    TimePoint startTime;
+    TimePoint optimumTime;
+    TimePoint maximumTime;
+};
+
+}  // namespace Stockfish
+
+namespace Stockfish {
+
+namespace Eval::NNUE {
+struct Networks;
+}
+
+// Different node types, used as a template parameter
+enum NodeType {
+    NonPV,
+    PV,
+    Root
+};
+
+class TranspositionTable;
+class ThreadPool;
+class OptionsMap;
+
+namespace Search {
+
+// Stack struct keeps track of the information we need to remember from nodes
+// shallower and deeper in the tree during the search. Each search thread has
+// its own array of Stack objects, indexed by the current ply.
+struct Stack {
+    Move*           pv;
+    PieceToHistory* continuationHistory;
+    Move            currentMove;
+    Move            excludedMove;
+    Move            killers[2];
+    Value           staticEval;
+    int             statScore;
+    uint8_t         ply;
+    uint8_t         moveCount;
+    uint8_t         cutoffCnt;
+    bool            ttHit;
+    bool            inCheck:1;
+    bool            ttPv:1;
+};
+
+// RootMove struct is used for moves at the root of the tree. For each root move
+// we store a score and a PV (really a refutation in the case of moves which
+// fail low). Score is normally set at -VALUE_INFINITE for all non-pv moves.
+struct RootMove {
+
+    explicit RootMove(Move m) :
+        pv(1, m) {}
+    bool operator==(const Move& m) const { return pv[0] == m; }
+    // Sort in descending order
+    bool operator<(const RootMove& m) const {
+        return m.score != score ? m.score < score : m.previousScore < previousScore;
+    }
+
+    uint64_t          effort          = 0;
+    Value             score           = -VALUE_INFINITE;
+    Value             previousScore   = -VALUE_INFINITE;
+    Value             averageScore    = -VALUE_INFINITE;
+    Value             uciScore        = -VALUE_INFINITE;
+    bool              scoreLowerbound = false;
+    bool              scoreUpperbound = false;
+    std::vector<Move> pv;
+};
+
+using RootMoves = std::vector<RootMove>;
+
+// LimitsType struct stores information sent by GUI about available time to
+// search the current move, maximum depth/time, or if we are in analysis mode.
+struct LimitsType {
+
+    // Init explicitly due to broken value-initialization of non POD in MSVC
+    LimitsType() {
+        time[WHITE] = time[BLACK] = inc[WHITE] = inc[BLACK] = movetime = TimePoint(0);
+        depth = infinite = nodes = 0;
+    }
+
+    bool use_time_management() const { return time[WHITE] || time[BLACK]; }
+
+    TimePoint time[COLOR_NB], inc[COLOR_NB], movetime, startTime;
+    int       depth, infinite;
+    uint64_t  nodes;
+};
+
+// The UCI stores the uci options, thread pool, and transposition table.
+// This struct is used to easily forward data to the Search::Worker class.
+struct SharedState {
+    SharedState(const OptionsMap&           optionsMap,
+                ThreadPool&                 threadPool,
+                TranspositionTable&         transpositionTable,
+                const Eval::NNUE::Networks& nets) :
+        options(optionsMap),
+        threads(threadPool),
+        tt(transpositionTable),
+        networks(nets) {}
+
+    const OptionsMap&           options;
+    ThreadPool&                 threads;
+    TranspositionTable&         tt;
+    const Eval::NNUE::Networks& networks;
+};
+
+class Worker;
+
+// Null Object Pattern, implement a common interface for the SearchManagers.
+// A Null Object will be given to non-mainthread workers.
+class ISearchManager {
+   public:
+    virtual ~ISearchManager() {}
+    virtual void check_time(Search::Worker&) = 0;
+};
+
+// SearchManager manages the search from the main thread. It is responsible for
+// keeping track of the time, and storing data strictly related to the main thread.
+class SearchManager: public ISearchManager {
+   public:
+    void check_time(Search::Worker& worker) override;
+
+    std::string pv(const Search::Worker&     worker,
+                   const ThreadPool&         threads,
+                   Depth                     depth) const;
+
+    Stockfish::TimeManagement tm;
+    int                       callsCnt;
+    std::atomic_bool          ponder;
+
+    std::array<Value, 4> iterValue;
+    double               previousTimeReduction;
+    Value                bestPreviousScore;
+    Value                bestPreviousAverageScore;
+    bool                 stopOnPonderhit;
+
+    size_t id;
+};
+
+class NullSearchManager: public ISearchManager {
+   public:
+    void check_time(Search::Worker&) override {}
+};
+
+// Search::Worker is the class that does the actual search.
+// It is instantiated once per thread, and it is responsible for keeping track
+// of the search history, and storing data required for the search.
+class Worker {
+   public:
+    Worker(SharedState&, std::unique_ptr<ISearchManager>, size_t);
+
+    // Called at instantiation to reset histories, usually before a new game
+    void clear();
+
+    // Called when the program receives the UCI 'go' command.
+    // It searches from the root position and outputs the "bestmove".
+    void start_searching();
+
+    bool is_mainthread() const { return thread_idx == 0; }
+
+    // Public because they need to be updatable by the stats
+    CounterMoveHistory    counterMoves;
+    ButterflyHistory      mainHistory;
+    CapturePieceToHistory captureHistory;
+    ContinuationHistory   continuationHistory[2][2];
+    PawnHistory           pawnHistory;
+    CorrectionHistory     correctionHistory;
+
+   private:
+    void iterative_deepening();
+
+    // Main search function for both PV and non-PV nodes
+    template<NodeType nodeType>
+    Value search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, bool cutNode);
+
+    // Quiescence search function, which is called by the main search
+    template<NodeType nodeType>
+    Value qsearch(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth = 0);
+
+    // Get a pointer to the search manager, only allowed to be called by the
+    // main thread.
+    SearchManager* main_manager() const {
+        assert(thread_idx == 0);
+        return static_cast<SearchManager*>(manager.get());
+    }
+
+    LimitsType limits;
+
+    size_t                pvIdx, pvLast;
+    std::atomic<uint64_t> nodes, bestMoveChanges;
+    int                   nmpMinPly;
+
+    Value optimism[COLOR_NB];
+
+    Position  rootPos;
+    StateInfo rootState;
+    RootMoves rootMoves;
+    Depth     rootDepth, completedDepth;
+    Value     rootDelta;
+
+    size_t thread_idx;
+
+    // The main thread has a SearchManager, the others have a NullSearchManager
+    std::unique_ptr<ISearchManager> manager;
+
+    const OptionsMap&           options;
+    ThreadPool&                 threads;
+    TranspositionTable&         tt;
+    const Eval::NNUE::Networks& networks;
+
+    friend class Stockfish::ThreadPool;
+    friend class SearchManager;
+};
+
+}  // namespace Search
+
+}  // namespace Stockfish
+
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <atomic>
+#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <vector>
+
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <thread>
+
+// On OSX threads other than the main thread are created with a reduced stack
+// size of 512KB by default, this is too low for deep searches, which require
+// somewhat more than 1MB stack, so adjust it to TH_STACK_SIZE.
+// The implementation calls pthread_create() with the stack size parameter
+// equal to the Linux 8MB default, on platforms that support it.
+
+#if defined(__APPLE__) || defined(__MINGW32__) || defined(__MINGW64__) || defined(USE_PTHREADS)
+
+    #include <pthread.h>
+    #include <functional>
+
+namespace Stockfish {
+
+class NativeThread {
+    pthread_t thread;
+
+    static constexpr size_t TH_STACK_SIZE = 8 * 1024 * 1024;
+
+   public:
+    template<class Function, class... Args>
+    explicit NativeThread(Function&& fun, Args&&... args) {
+        auto func = new std::function<void()>(
+          std::bind(std::forward<Function>(fun), std::forward<Args>(args)...));
+
+        pthread_attr_t attr_storage, *attr = &attr_storage;
+        pthread_attr_init(attr);
+        pthread_attr_setstacksize(attr, TH_STACK_SIZE);
+
+        auto start_routine = [](void* ptr) -> void* {
+            auto f = reinterpret_cast<std::function<void()>*>(ptr);
+            // Call the function
+            (*f)();
+            delete f;
+            return nullptr;
+        };
+
+        pthread_create(&thread, attr, start_routine, func);
+    }
+
+    void join() { pthread_join(thread, nullptr); }
+};
+
+}  // namespace Stockfish
+
+#else  // Default case: use STL classes
+
+namespace Stockfish {
+
+using NativeThread = std::thread;
+
+}  // namespace Stockfish
+
 #endif
 
 namespace Stockfish {
 
-namespace Eval {
+class OptionsMap;
 
-// Tries to load a NNUE network at startup time, or when the engine
-// receives a UCI command "setoption name EvalFile value nn-[a-z0-9]{12}.nnue"
-// The name of the NNUE network is always retrieved from the EvalFile option.
-// We search the given network in three locations: internally (the default
-// network may be embedded in the binary), in the active working directory and
-// in the engine directory. Distro packagers may define the DEFAULT_NNUE_DIRECTORY
-// variable to have the engine search in a special directory in their distro.
-NNUE::EvalFiles NNUE::load_networks(const std::string& rootDirectory,
-                                    const OptionsMap&  options,
-                                    NNUE::EvalFiles    evalFiles) {
+using Value = int;
 
-    for (auto& [netSize, evalFile] : evalFiles)
-    {
-        std::string user_eval_file = options[evalFile.optionName];
+// Abstraction of a thread. It contains a pointer to the worker and a native thread.
+// After construction, the native thread is started with idle_loop()
+// waiting for a signal to start searching.
+// When the signal is received, the thread starts searching and when
+// the search is finished, it goes back to idle_loop() waiting for a new signal.
+class Thread {
+   public:
+    Thread(Search::SharedState&, std::unique_ptr<Search::ISearchManager>, size_t);
+    virtual ~Thread();
 
-        if (user_eval_file.empty())
-            user_eval_file = evalFile.defaultName;
+    void   idle_loop();
+    void   start_searching();
+    void   wait_for_search_finished();
+    size_t id() const { return idx; }
 
-#if defined(DEFAULT_NNUE_DIRECTORY)
-        std::vector<std::string> dirs = {"<internal>", "", rootDirectory,
-                                         stringify(DEFAULT_NNUE_DIRECTORY)};
-#else
-        std::vector<std::string> dirs = {"<internal>", "", rootDirectory};
-#endif
+    std::unique_ptr<Search::Worker> worker;
 
-        for (const std::string& directory : dirs)
+   private:
+    std::mutex              mutex;
+    std::condition_variable cv;
+    size_t                  idx, nthreads;
+    bool                    exit = false, searching = true;  // Set before starting std::thread
+    NativeThread            stdThread;
+};
+
+// ThreadPool struct handles all the threads-related stuff like init, starting,
+// parking and, most importantly, launching a thread. All the access to threads
+// is done through this class.
+class ThreadPool {
+
+   public:
+    ~ThreadPool() {
+        // destroy any existing thread(s)
+        if (threads.size() > 0)
         {
-            if (evalFile.current != user_eval_file)
+            main_thread()->wait_for_search_finished();
+
+            while (threads.size() > 0)
+                delete threads.back(), threads.pop_back();
+        }
+    }
+    void start_thinking(const OptionsMap&, Position&, StateListPtr&, Search::LimitsType);
+    void clear();
+    void set(Search::SharedState);
+
+    Search::SearchManager* main_manager();
+    Thread*                main_thread() const { return threads.front(); }
+    uint64_t               nodes_searched() const;
+    void                   start_searching();
+    void                   wait_for_search_finished() const;
+
+    std::atomic_bool stop, abortedSearch, increaseDepth;
+
+    auto cbegin() const noexcept { return threads.cbegin(); }
+    auto begin() noexcept { return threads.begin(); }
+    auto end() noexcept { return threads.end(); }
+    auto cend() const noexcept { return threads.cend(); }
+    auto size() const noexcept { return threads.size(); }
+    auto empty() const noexcept { return threads.empty(); }
+
+   private:
+    StateListPtr         setupStates;
+    std::vector<Thread*> threads;
+
+    uint64_t accumulate(std::atomic<uint64_t> Search::Worker::*member) const {
+
+        uint64_t sum = 0;
+        for (Thread* th : threads)
+            sum += (th->worker.get()->*member).load(std::memory_order_relaxed);
+        return sum;
+    }
+};
+
+}  // namespace Stockfish
+
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <cstddef>
+#include <cstdint>
+
+namespace Stockfish {
+
+// TTEntry struct is the 10 bytes transposition table entry, defined as below:
+//
+// key        16 bit
+// depth       8 bit
+// generation  5 bit
+// pv node     1 bit
+// bound type  2 bit
+// move       16 bit
+// value      16 bit
+// eval value 16 bit
+struct TTEntry {
+
+    Move  move() const { return Move(move16); }
+    Value value() const { return Value(value16); }
+    Value eval() const { return Value(eval16); }
+    Depth depth() const { return Depth(depth8 + DEPTH_OFFSET); }
+    bool  is_pv() const { return bool(genBound8 & 0x4); }
+    Bound bound() const { return Bound(genBound8 & 0x3); }
+    void  save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev, uint8_t generation8);
+    // The returned age is a multiple of TranspositionTable::GENERATION_DELTA
+    uint8_t relative_age(const uint8_t generation8) const;
+
+   private:
+    friend class TranspositionTable;
+
+    uint16_t key16;
+    uint8_t  depth8;
+    uint8_t  genBound8;
+    Move     move16;
+    int16_t  value16;
+    int16_t  eval16;
+};
+
+// A TranspositionTable is an array of Cluster, of size clusterCount. Each
+// cluster consists of ClusterSize number of TTEntry. Each non-empty TTEntry
+// contains information on exactly one position. The size of a Cluster should
+// divide the size of a cache line for best performance, as the cacheline is
+// prefetched when possible.
+class TranspositionTable {
+
+    static constexpr int ClusterSize = 3;
+
+    struct Cluster {
+        TTEntry entry[ClusterSize];
+        char    padding[2];  // Pad to 32 bytes
+    };
+
+    static_assert(sizeof(Cluster) == 32, "Unexpected Cluster size");
+
+    // Constants used to refresh the hash table periodically
+
+    // We have 8 bits available where the lowest 3 bits are
+    // reserved for other things.
+    static constexpr unsigned GENERATION_BITS = 3;
+    // increment for generation field
+    static constexpr int GENERATION_DELTA = (1 << GENERATION_BITS);
+    // cycle length
+    static constexpr int GENERATION_CYCLE = 255 + GENERATION_DELTA;
+    // mask to pull out generation number
+    static constexpr int GENERATION_MASK = (0xFF << GENERATION_BITS) & 0xFF;
+
+   public:
+    ~TranspositionTable() { aligned_large_pages_free(table); }
+
+    void new_search() {
+        // increment by delta to keep lower bits as is
+        generation8 += GENERATION_DELTA;
+    }
+
+    TTEntry* probe(const Key key, bool& found) const;
+    int      hashfull() const;
+    void     resize(size_t mbSize, int threadCount);
+    void     clear(size_t threadCount);
+
+    TTEntry* first_entry(const Key key) const {
+        return &table[mul_hi64(key, clusterCount)].entry[0];
+    }
+
+    uint8_t generation() const { return generation8; }
+
+   private:
+    friend struct TTEntry;
+
+    size_t   clusterCount;
+    Cluster* table       = nullptr;
+    uint8_t  generation8 = 0;  // Size must be not bigger than TTEntry::genBound8
+};
+
+}  // namespace Stockfish
+
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <cstddef>
+#include <functional>
+#include <iosfwd>
+#include <map>
+#include <string>
+
+namespace Stockfish {
+// Define a custom comparator, because the UCI options should be case-insensitive
+struct CaseInsensitiveLess {
+    bool operator()(const std::string&, const std::string&) const;
+};
+
+class Option;
+
+class OptionsMap {
+   public:
+    void setoption(std::istringstream&);
+
+    friend std::ostream& operator<<(std::ostream&, const OptionsMap&);
+
+    Option  operator[](const std::string&) const;
+    Option& operator[](const std::string&);
+
+    std::size_t count(const std::string&) const;
+
+   private:
+    // The options container is defined as a std::map
+    using OptionsStore = std::map<std::string, Option, CaseInsensitiveLess>;
+
+    OptionsStore options_map;
+};
+
+// The Option class implements each option as specified by the UCI protocol
+class Option {
+   public:
+    using OnChange = std::function<void(const Option&)>;
+
+    Option(OnChange = nullptr);
+    Option(bool v, OnChange = nullptr);
+    Option(const char* v, OnChange = nullptr);
+    Option(double v, int minv, int maxv, OnChange = nullptr);
+    Option(const char* v, const char* cur, OnChange = nullptr);
+
+    Option& operator=(const std::string&);
+    void    operator<<(const Option&);
+    operator int() const;
+    operator std::string() const;
+    bool operator==(const char*) const;
+
+    friend std::ostream& operator<<(std::ostream&, const OptionsMap&);
+
+   private:
+    std::string defaultValue, currentValue, type;
+    int         min, max;
+    OnChange    on_change;
+};
+
+}
+
+namespace Stockfish {
+
+constexpr uint8_t MultiPV = 1;
+constexpr uint8_t MaxThreads = 15;
+constexpr bool ShowWDL = false;
+
+class Move;
+enum Square : int;
+using Value = int;
+
+class UCI {
+   public:
+    UCI(int argc, char** argv);
+
+    void loop();
+
+    static int         to_cp(Value v, const Position& pos);
+    static std::string to_score(Value v, const Position& pos);
+    static std::string square(Square s);
+    static std::string move(Move m, bool chess960);
+    static std::string wdl(Value v, const Position& pos);
+    static Move        to_move(const Position& pos, std::string& str);
+
+    static Search::LimitsType parse_limits(const Position& pos, std::istream& is);
+
+    const std::string& working_directory() const { return cli.workingDirectory; }
+
+    OptionsMap           options;
+    Eval::NNUE::Networks networks;
+
+   private:
+    TranspositionTable tt;
+    ThreadPool         threads;
+    CommandLine        cli;
+
+    void go(Position& pos, std::istringstream& is, StateListPtr& states);
+    void bench(Position& pos, std::istream& args, StateListPtr& states);
+    void position(Position& pos, std::istringstream& is, StateListPtr& states);
+    void search_clear();
+    void setoption(std::istringstream& is);
+};
+
+}  // namespace Stockfish
+
+using namespace Stockfish;
+
+int main(int argc, char* argv[]) {
+
+    std::cout << engine_info() << std::endl;
+
+    Bitboards::init();
+    Position::init();
+
+    UCI uci(argc, argv);
+    uci.loop();
+
+    return 0;
+}
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <algorithm>
+#include <bitset>
+#include <initializer_list>
+
+namespace Stockfish {
+
+uint8_t PopCnt16[1 << 16];
+uint8_t SquareDistance[SQUARE_NB][SQUARE_NB];
+
+Bitboard LineBB[SQUARE_NB][SQUARE_NB];
+Bitboard BetweenBB[SQUARE_NB][SQUARE_NB];
+Bitboard PseudoAttacks[PIECE_TYPE_NB][SQUARE_NB];
+Bitboard PawnAttacks[COLOR_NB][SQUARE_NB];
+
+Magic RookMagics[SQUARE_NB];
+Magic BishopMagics[SQUARE_NB];
+
+namespace {
+
+Bitboard RookTable[0x19000];   // To store rook attacks
+Bitboard BishopTable[0x1480];  // To store bishop attacks
+
+void init_magics(PieceType pt, Bitboard table[], Magic magics[]);
+
+// Returns the bitboard of target square for the given step
+// from the given square. If the step is off the board, returns empty bitboard.
+Bitboard safe_destination(Square s, int step) {
+    Square to = Square(s + step);
+    return is_ok(to) && distance(s, to) <= 2 ? square_bb(to) : Bitboard(0);
+}
+}
+
+// Returns an ASCII representation of a bitboard suitable
+// to be printed to standard output. Useful for debugging.
+std::string Bitboards::pretty(Bitboard b) {
+
+    std::string s = "+---+---+---+---+---+---+---+---+\n";
+
+    for (Rank r = RANK_8; r >= RANK_1; --r)
+    {
+        for (File f = FILE_A; f <= FILE_H; ++f)
+            s += b & make_square(f, r) ? "| X " : "|   ";
+
+        s += "| " + std::to_string(1 + r) + "\n+---+---+---+---+---+---+---+---+\n";
+    }
+    s += "  a   b   c   d   e   f   g   h\n";
+
+    return s;
+}
+
+// Initializes various bitboard tables. It is called at
+// startup and relies on global objects to be already zero-initialized.
+void Bitboards::init() {
+
+    for (unsigned i = 0; i < (1 << 16); ++i)
+        PopCnt16[i] = uint8_t(std::bitset<16>(i).count());
+
+    for (Square s1 = SQ_A1; s1 <= SQ_H8; ++s1)
+        for (Square s2 = SQ_A1; s2 <= SQ_H8; ++s2)
+            SquareDistance[s1][s2] = std::max(distance<File>(s1, s2), distance<Rank>(s1, s2));
+
+    init_magics(ROOK, RookTable, RookMagics);
+    init_magics(BISHOP, BishopTable, BishopMagics);
+
+    for (Square s1 = SQ_A1; s1 <= SQ_H8; ++s1)
+    {
+        PawnAttacks[WHITE][s1] = pawn_attacks_bb<WHITE>(square_bb(s1));
+        PawnAttacks[BLACK][s1] = pawn_attacks_bb<BLACK>(square_bb(s1));
+
+        for (int step : {-9, -8, -7, -1, 1, 7, 8, 9})
+            PseudoAttacks[KING][s1] |= safe_destination(s1, step);
+
+        for (int step : {-17, -15, -10, -6, 6, 10, 15, 17})
+            PseudoAttacks[KNIGHT][s1] |= safe_destination(s1, step);
+
+        PseudoAttacks[QUEEN][s1] = PseudoAttacks[BISHOP][s1] = attacks_bb<BISHOP>(s1, 0);
+        PseudoAttacks[QUEEN][s1] |= PseudoAttacks[ROOK][s1]  = attacks_bb<ROOK>(s1, 0);
+
+        for (PieceType pt : {BISHOP, ROOK})
+            for (Square s2 = SQ_A1; s2 <= SQ_H8; ++s2)
             {
-                if (directory != "<internal>")
+                if (PseudoAttacks[pt][s1] & s2)
                 {
-                    std::ifstream stream(directory + user_eval_file, std::ios::binary);
-                    auto          description = NNUE::load_eval(stream, netSize);
-
-                    if (description.has_value())
-                    {
-                        evalFile.current        = user_eval_file;
-                        evalFile.netDescription = description.value();
-                    }
+                    LineBB[s1][s2] = (attacks_bb(pt, s1, 0) & attacks_bb(pt, s2, 0)) | s1 | s2;
+                    BetweenBB[s1][s2] =
+                      (attacks_bb(pt, s1, square_bb(s2)) & attacks_bb(pt, s2, square_bb(s1)));
                 }
+                BetweenBB[s1][s2] |= s2;
+            }
+    }
+}
 
-                if (directory == "<internal>" && user_eval_file == evalFile.defaultName)
+namespace {
+
+Bitboard sliding_attack(PieceType pt, Square sq, Bitboard occupied) {
+
+    Bitboard  attacks             = 0;
+    Direction RookDirections[4]   = {NORTH, SOUTH, EAST, WEST};
+    Direction BishopDirections[4] = {NORTH_EAST, SOUTH_EAST, SOUTH_WEST, NORTH_WEST};
+
+    for (Direction d : (pt == ROOK ? RookDirections : BishopDirections))
+    {
+        Square s = sq;
+        while (safe_destination(s, d) && !(occupied & s))
+            attacks |= (s += d);
+    }
+
+    return attacks;
+}
+
+// Computes all rook and bishop attacks at startup. Magic
+// bitboards are used to look up attacks of sliding pieces. As a reference see
+// www.chessprogramming.org/Magic_Bitboards. In particular, here we use the so
+// called "fancy" approach.
+void init_magics(PieceType pt, Bitboard table[], Magic magics[]) {
+
+    // Optimal PRNG seeds to pick the correct magics in the shortest time
+    int seeds[][RANK_NB] = {{8977, 44560, 54343, 38998, 5731, 95205, 104912, 17020},
+                            {728, 10316, 55013, 32803, 12281, 15100, 16645, 255}};
+
+    Bitboard occupancy[4096], reference[4096], edges, b;
+    int      epoch[4096] = {}, cnt = 0, size = 0;
+
+    for (Square s = SQ_A1; s <= SQ_H8; ++s)
+    {
+        // Board edges are not considered in the relevant occupancies
+        edges = ((Rank1BB | Rank8BB) & ~rank_bb(s)) | ((FileABB | FileHBB) & ~file_bb(s));
+
+        // Given a square 's', the mask is the bitboard of sliding attacks from
+        // 's' computed on an empty board. The index must be big enough to contain
+        // all the attacks for each possible subset of the mask and so is 2 power
+        // the number of 1s of the mask. Hence we deduce the size of the shift to
+        // apply to the 64 or 32 bits word to get the index.
+        Magic& m = magics[s];
+        m.mask   = sliding_attack(pt, s, 0) & ~edges;
+        m.shift  = (Is64Bit ? 64 : 32) - popcount(m.mask);
+
+        // Set the offset for the attacks table of the square. We have individual
+        // table sizes for each square with "Fancy Magic Bitboards".
+        m.attacks = s == SQ_A1 ? table : magics[s - 1].attacks + size;
+
+        // Use Carry-Rippler trick to enumerate all subsets of masks[s] and
+        // store the corresponding sliding attack bitboard in reference[].
+        b = size = 0;
+        do
+        {
+            occupancy[size] = b;
+            reference[size] = sliding_attack(pt, s, b);
+
+            if (HasPext)
+                m.attacks[pext(b, m.mask)] = reference[size];
+
+            size++;
+            b = (b - m.mask) & m.mask;
+        } while (b);
+
+        if (HasPext)
+            continue;
+
+        PRNG rng(seeds[Is64Bit][rank_of(s)]);
+
+        // Find a magic for square 's' picking up an (almost) random number
+        // until we find the one that passes the verification test.
+        for (int i = 0; i < size;)
+        {
+            for (m.magic = 0; popcount((m.magic * m.mask) >> 56) < 6;)
+                m.magic = rng.sparse_rand<Bitboard>();
+
+            // A good magic must map every possible occupancy to an index that
+            // looks up the correct sliding attack in the attacks[s] database.
+            // Note that we build up the database for square 's' as a side
+            // effect of verifying the magic. Keep track of the attempt count
+            // and save it in epoch[], little speed-up trick to avoid resetting
+            // m.attacks[] after every failed attempt.
+            for (++cnt, i = 0; i < size; ++i)
+            {
+                unsigned idx = m.index(occupancy[i]);
+
+                if (epoch[idx] < cnt)
                 {
-                    // C++ way to prepare a buffer for a memory stream
-                    class MemoryBuffer: public std::basic_streambuf<char> {
-                       public:
-                        MemoryBuffer(char* p, size_t n) {
-                            setg(p, p, p + n);
-                            setp(p, p + n);
-                        }
-                    };
-
-                    MemoryBuffer buffer(
-                      const_cast<char*>(reinterpret_cast<const char*>(
-                        netSize == Small ? gEmbeddedNNUESmallData : gEmbeddedNNUEBigData)),
-                      size_t(netSize == Small ? gEmbeddedNNUESmallSize : gEmbeddedNNUEBigSize));
-                    (void) gEmbeddedNNUEBigEnd;  // Silence warning on unused variable
-                    (void) gEmbeddedNNUESmallEnd;
-
-                    std::istream stream(&buffer);
-                    auto         description = NNUE::load_eval(stream, netSize);
-
-                    if (description.has_value())
-                    {
-                        evalFile.current        = user_eval_file;
-                        evalFile.netDescription = description.value();
-                    }
+                    epoch[idx]     = cnt;
+                    m.attacks[idx] = reference[i];
                 }
+                else if (m.attacks[idx] != reference[i])
+                    break;
             }
         }
     }
-
-    return evalFiles;
 }
-
-// Verifies that the last net used was loaded successfully
-void NNUE::verify(const OptionsMap&                                        options,
-                  const std::unordered_map<Eval::NNUE::NetSize, EvalFile>& evalFiles) {
-
-    for (const auto& [netSize, evalFile] : evalFiles)
-    {
-        std::string user_eval_file = options[evalFile.optionName];
-
-        if (user_eval_file.empty())
-            user_eval_file = evalFile.defaultName;
-
-        if (evalFile.current != user_eval_file)
-        {
-            std::string msg1 =
-              "Network evaluation parameters compatible with the engine must be available.";
-            std::string msg2 =
-              "The network file " + user_eval_file + " was not loaded successfully.";
-            std::string msg3 = "The UCI option EvalFile might need to specify the full path, "
-                               "including the directory name, to the network file.";
-            std::string msg4 = "The default net can be downloaded from: "
-                               "https://tests.stockfishchess.org/api/nn/"
-                             + evalFile.defaultName;
-            std::string msg5 = "The engine will be terminated now.";
-
-            sync_cout << "info string ERROR: " << msg1 << sync_endl;
-            sync_cout << "info string ERROR: " << msg2 << sync_endl;
-            sync_cout << "info string ERROR: " << msg3 << sync_endl;
-            sync_cout << "info string ERROR: " << msg4 << sync_endl;
-            sync_cout << "info string ERROR: " << msg5 << sync_endl;
-
-            exit(EXIT_FAILURE);
-        }
-
-        sync_cout << "info string NNUE evaluation using " << user_eval_file << sync_endl;
-    }
-}
-}
-
-// Returns a static, purely materialistic evaluation of the position from
-// the point of view of the given color. It can be divided by PawnValue to get
-// an approximation of the material advantage on the board in terms of pawns.
-int Eval::simple_eval(const Position& pos, Color c) {
-    return PawnValue * (pos.count<PAWN>(c) - pos.count<PAWN>(~c))
-         + (pos.non_pawn_material(c) - pos.non_pawn_material(~c));
-}
-
-// Evaluate is the evaluator for the outer world. It returns a static evaluation
-// of the position from the point of view of the side to move.
-Value Eval::evaluate(const Position& pos, int optimism) {
-
-    assert(!pos.checkers());
-
-    int  simpleEval = simple_eval(pos, pos.side_to_move());
-    bool smallNet   = std::abs(simpleEval) > 1050;
-    bool psqtOnly   = std::abs(simpleEval) > 2500;
-
-    int nnueComplexity;
-
-    Value nnue = smallNet ? NNUE::evaluate<NNUE::Small>(pos, true, &nnueComplexity, psqtOnly)
-                          : NNUE::evaluate<NNUE::Big>(pos, true, &nnueComplexity, false);
-
-    // Blend optimism and eval with nnue complexity and material imbalance
-    optimism += optimism * (nnueComplexity + std::abs(simpleEval - nnue)) / 512;
-    nnue -= nnue * (nnueComplexity + std::abs(simpleEval - nnue)) / 32768;
-
-    int npm = pos.non_pawn_material() / 64;
-    int v   = (nnue * (915 + npm + 9 * pos.count<PAWN>()) + optimism * (154 + npm)) / 1024;
-
-    // Damp down the evaluation linearly when shuffling
-    int shuffling = pos.rule50_count();
-    v             = v * (200 - shuffling) / 214;
-
-    // Guarantee evaluation does not hit the tablebase range
-    v = std::clamp(v, VALUE_TB_LOSS_IN_MAX_PLY + 1, VALUE_TB_WIN_IN_MAX_PLY - 1);
-
-    return v;
 }
 
 }  // namespace Stockfish
@@ -6006,14 +5465,15 @@ namespace WinProcGroup {
 
 #ifndef _WIN32
 
-void bindThisThread(size_t) {}
+void bind_this_thread(size_t) {}
 
 #else
 
+namespace {
 // Retrieves logical processor information using Windows-specific
 // API and returns the best node id for the thread with index idx. Original
 // code from Texel by Peter Österlund.
-static int best_node(size_t idx) {
+int best_node(size_t idx) {
 
     int   threads      = 0;
     int   nodes        = 0;
@@ -6078,9 +5538,10 @@ static int best_node(size_t idx) {
     // then return -1 and let the OS to decide what to do.
     return idx < groups.size() ? groups[idx] : -1;
 }
+}
 
 // Sets the group affinity of the current thread
-void bindThisThread(size_t idx) {
+void bind_this_thread(size_t idx) {
 
     // Use only local variables to be thread-safe
     int node = best_node(idx);
@@ -7424,6 +6885,1024 @@ bool Position::has_game_cycle(int ply) const {
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+// Code for calculating NNUE evaluation function
+
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <iomanip>
+#include <iosfwd>
+#include <iostream>
+#include <sstream>
+#include <string_view>
+
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <string>
+
+namespace Stockfish {
+
+class Position;
+
+namespace Eval {
+
+constexpr inline int SmallNetThreshold = 1050, PsqtOnlyThreshold = 2500;
+
+// The default net name MUST follow the format nn-[SHA256 first 12 digits].nnue
+// for the build process (profile-build and fishtest) to work. Do not change the
+// name of the macro or the location where this macro is defined, as it is used
+// in the Makefile/Fishtest.
+#define EvalFileDefaultNameBig "nn-1ceb1ade0001.nnue"
+#define EvalFileDefaultNameSmall "nn-baff1ede1f90.nnue"
+
+namespace NNUE {
+struct Networks;
+}
+
+std::string trace(Position& pos, const Eval::NNUE::Networks& networks);
+
+int   simple_eval(const Position& pos, Color c);
+Value evaluate(const NNUE::Networks& networks, const Position& pos, int optimism);
+
+}  // namespace Eval
+
+}  // namespace Stockfish
+
+namespace Stockfish::Eval::NNUE {
+
+constexpr std::string_view PieceToChar(" PNBRQK  pnbrqk");
+
+void hint_common_parent_position(const Position& pos, const Networks& networks) {
+
+    int simpleEvalAbs = std::abs(simple_eval(pos, pos.side_to_move()));
+    if (simpleEvalAbs > Eval::SmallNetThreshold)
+        networks.small.hint_common_access(pos, simpleEvalAbs > Eval::PsqtOnlyThreshold);
+    else
+        networks.big.hint_common_access(pos, false);
+}
+
+namespace {
+// Converts a Value into (centi)pawns and writes it in a buffer.
+// The buffer must have capacity for at least 5 chars.
+void format_cp_compact(Value v, char* buffer, const Position& pos) {
+
+    buffer[0] = (v < 0 ? '-' : v > 0 ? '+' : ' ');
+
+    int cp = std::abs(UCI::to_cp(v, pos));
+    if (cp >= 10000)
+    {
+        buffer[1] = '0' + cp / 10000;
+        cp %= 10000;
+        buffer[2] = '0' + cp / 1000;
+        cp %= 1000;
+        buffer[3] = '0' + cp / 100;
+        buffer[4] = ' ';
+    }
+    else if (cp >= 1000)
+    {
+        buffer[1] = '0' + cp / 1000;
+        cp %= 1000;
+        buffer[2] = '0' + cp / 100;
+        cp %= 100;
+        buffer[3] = '.';
+        buffer[4] = '0' + cp / 10;
+    }
+    else
+    {
+        buffer[1] = '0' + cp / 100;
+        cp %= 100;
+        buffer[2] = '.';
+        buffer[3] = '0' + cp / 10;
+        cp %= 10;
+        buffer[4] = '0' + cp / 1;
+    }
+}
+
+// Converts a Value into pawns, always keeping two decimals
+void format_cp_aligned_dot(Value v, std::stringstream& stream, const Position& pos) {
+
+    const double pawns = std::abs(0.01 * UCI::to_cp(v, pos));
+
+    stream << (v < 0   ? '-'
+               : v > 0 ? '+'
+                       : ' ')
+           << std::setiosflags(std::ios::fixed) << std::setw(6) << std::setprecision(2) << pawns;
+}
+}
+
+// Returns a string with the value of each piece on a board,
+// and a table for (PSQT, Layers) values bucket by bucket.
+std::string trace(Position& pos, const Eval::NNUE::Networks& networks) {
+
+    std::stringstream ss;
+
+    char board[3 * 8 + 1][8 * 8 + 2];
+    std::memset(board, ' ', sizeof(board));
+    for (int row = 0; row < 3 * 8 + 1; ++row)
+        board[row][8 * 8 + 1] = '\0';
+
+    // A lambda to output one box of the board
+    auto writeSquare = [&board, &pos](File file, Rank rank, Piece pc, Value value) {
+        const int x = int(file) * 8;
+        const int y = (7 - int(rank)) * 3;
+        for (int i = 1; i < 8; ++i)
+            board[y][x + i] = board[y + 3][x + i] = '-';
+        for (int i = 1; i < 3; ++i)
+            board[y + i][x] = board[y + i][x + 8] = '|';
+        board[y][x] = board[y][x + 8] = board[y + 3][x + 8] = board[y + 3][x] = '+';
+        if (pc != NO_PIECE)
+            board[y + 1][x + 4] = PieceToChar[pc];
+        if (value != VALUE_NONE)
+            format_cp_compact(value, &board[y + 2][x + 2], pos);
+    };
+
+    // We estimate the value of each piece by doing a differential evaluation from
+    // the current base eval, simulating the removal of the piece from its square.
+    Value base = networks.big.evaluate(pos);
+    base       = pos.side_to_move() == WHITE ? base : -base;
+
+    for (File f = FILE_A; f <= FILE_H; ++f)
+        for (Rank r = RANK_1; r <= RANK_8; ++r)
+        {
+            Square sq = make_square(f, r);
+            Piece  pc = pos.piece_on(sq);
+            Value  v  = VALUE_NONE;
+
+            if (pc != NO_PIECE && type_of(pc) != KING)
+            {
+                auto st = pos.state();
+
+                pos.remove_piece(sq);
+                st->accumulatorBig.computed[WHITE]       = st->accumulatorBig.computed[BLACK] =
+                  st->accumulatorBig.computedPSQT[WHITE] = st->accumulatorBig.computedPSQT[BLACK] =
+                    false;
+
+                Value eval = networks.big.evaluate(pos);
+                eval       = pos.side_to_move() == WHITE ? eval : -eval;
+                v          = base - eval;
+
+                pos.put_piece(pc, sq);
+                st->accumulatorBig.computed[WHITE]       = st->accumulatorBig.computed[BLACK] =
+                  st->accumulatorBig.computedPSQT[WHITE] = st->accumulatorBig.computedPSQT[BLACK] =
+                    false;
+            }
+
+            writeSquare(f, r, pc, v);
+        }
+
+    ss << " NNUE derived piece values:\n";
+    for (int row = 0; row < 3 * 8 + 1; ++row)
+        ss << board[row] << '\n';
+    ss << '\n';
+
+    auto t = networks.big.trace_evaluate(pos);
+
+    ss << " NNUE network contributions "
+       << (pos.side_to_move() == WHITE ? "(White to move)" : "(Black to move)") << std::endl
+       << "+------------+------------+------------+------------+\n"
+       << "|   Bucket   |  Material  | Positional |   Total    |\n"
+       << "|            |   (PSQT)   |  (Layers)  |            |\n"
+       << "+------------+------------+------------+------------+\n";
+
+    for (std::size_t bucket = 0; bucket < LayerStacks; ++bucket)
+    {
+        ss << "|  " << bucket << "        ";
+        ss << " |  ";
+        format_cp_aligned_dot(t.psqt[bucket], ss, pos);
+        ss << "  "
+           << " |  ";
+        format_cp_aligned_dot(t.positional[bucket], ss, pos);
+        ss << "  "
+           << " |  ";
+        format_cp_aligned_dot(t.psqt[bucket] + t.positional[bucket], ss, pos);
+        ss << "  "
+           << " |";
+        if (bucket == t.correctBucket)
+            ss << " <-- this bucket is used";
+        ss << '\n';
+    }
+
+    ss << "+------------+------------+------------+------------+\n";
+
+    return ss.str();
+}
+
+}  // namespace Stockfish::Eval::NNUE
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <optional>
+#include <type_traits>
+#include <vector>
+
+/**
+ * @file incbin.h
+ * @author Dale Weiler
+ * @brief Utility for including binary files
+ *
+ * Facilities for including binary files into the current translation unit
+ * and making use of them externally in other translation units.
+ */
+
+#include <limits.h>
+#if   defined(__AVX512BW__) || \
+      defined(__AVX512CD__) || \
+      defined(__AVX512DQ__) || \
+      defined(__AVX512ER__) || \
+      defined(__AVX512PF__) || \
+      defined(__AVX512VL__) || \
+      defined(__AVX512F__)
+# define INCBIN_ALIGNMENT_INDEX 6
+#elif defined(__AVX__)      || \
+      defined(__AVX2__)
+# define INCBIN_ALIGNMENT_INDEX 5
+#elif defined(__SSE__)      || \
+      defined(__SSE2__)     || \
+      defined(__SSE3__)     || \
+      defined(__SSSE3__)    || \
+      defined(__SSE4_1__)   || \
+      defined(__SSE4_2__)   || \
+      defined(__neon__)
+# define INCBIN_ALIGNMENT_INDEX 4
+#elif ULONG_MAX != 0xffffffffu
+# define INCBIN_ALIGNMENT_INDEX 3
+# else
+# define INCBIN_ALIGNMENT_INDEX 2
+#endif
+
+/* Lookup table of (1 << n) where `n' is `INCBIN_ALIGNMENT_INDEX' */
+#define INCBIN_ALIGN_SHIFT_0 1
+#define INCBIN_ALIGN_SHIFT_1 2
+#define INCBIN_ALIGN_SHIFT_2 4
+#define INCBIN_ALIGN_SHIFT_3 8
+#define INCBIN_ALIGN_SHIFT_4 16
+#define INCBIN_ALIGN_SHIFT_5 32
+#define INCBIN_ALIGN_SHIFT_6 64
+
+/* Actual alignment value */
+#define INCBIN_ALIGNMENT \
+    INCBIN_CONCATENATE( \
+        INCBIN_CONCATENATE(INCBIN_ALIGN_SHIFT, _), \
+        INCBIN_ALIGNMENT_INDEX)
+
+/* Stringize */
+#define INCBIN_STR(X) \
+    #X
+#define INCBIN_STRINGIZE(X) \
+    INCBIN_STR(X)
+/* Concatenate */
+#define INCBIN_CAT(X, Y) \
+    X ## Y
+#define INCBIN_CONCATENATE(X, Y) \
+    INCBIN_CAT(X, Y)
+/* Deferred macro expansion */
+#define INCBIN_EVAL(X) \
+    X
+#define INCBIN_INVOKE(N, ...) \
+    INCBIN_EVAL(N(__VA_ARGS__))
+
+/* Green Hills uses a different directive for including binary data */
+#if defined(__ghs__)
+#  if (__ghs_asm == 2)
+#    define INCBIN_MACRO ".file"
+/* Or consider the ".myrawdata" entry in the ld file */
+#  else
+#    define INCBIN_MACRO "\tINCBIN"
+#  endif
+#else
+#  define INCBIN_MACRO ".incbin"
+#endif
+
+#ifndef _MSC_VER
+#  define INCBIN_ALIGN \
+    __attribute__((aligned(INCBIN_ALIGNMENT)))
+#else
+#  define INCBIN_ALIGN __declspec(align(INCBIN_ALIGNMENT))
+#endif
+
+#if defined(__arm__) || /* GNU C and RealView */ \
+    defined(__arm) || /* Diab */ \
+    defined(_ARM) /* ImageCraft */
+#  define INCBIN_ARM
+#endif
+
+#ifdef __GNUC__
+/* Utilize .balign where supported */
+#  define INCBIN_ALIGN_HOST ".balign " INCBIN_STRINGIZE(INCBIN_ALIGNMENT) "\n"
+#  define INCBIN_ALIGN_BYTE ".balign 1\n"
+#elif defined(INCBIN_ARM)
+/*
+ * On arm assemblers, the alignment value is calculated as (1 << n) where `n' is
+ * the shift count. This is the value passed to `.align'
+ */
+#  define INCBIN_ALIGN_HOST ".align " INCBIN_STRINGIZE(INCBIN_ALIGNMENT_INDEX) "\n"
+#  define INCBIN_ALIGN_BYTE ".align 0\n"
+#else
+/* We assume other inline assembler's treat `.align' as `.balign' */
+#  define INCBIN_ALIGN_HOST ".align " INCBIN_STRINGIZE(INCBIN_ALIGNMENT) "\n"
+#  define INCBIN_ALIGN_BYTE ".align 1\n"
+#endif
+
+/* INCBIN_CONST is used by incbin.c generated files */
+#if defined(__cplusplus)
+#  define INCBIN_EXTERNAL extern "C"
+#  define INCBIN_CONST    extern const
+#else
+#  define INCBIN_EXTERNAL extern
+#  define INCBIN_CONST    const
+#endif
+
+/**
+ * @brief Optionally override the linker section into which data is emitted.
+ *
+ * @warning If you use this facility, you'll have to deal with platform-specific linker output
+ * section naming on your own
+ *
+ * Overriding the default linker output section, e.g for esp8266/Arduino:
+ * @code
+ * #define INCBIN_OUTPUT_SECTION ".irom.text"
+ * #include "incbin.h"
+ * INCBIN(Foo, "foo.txt");
+ * // Data is emitted into program memory that never gets copied to RAM
+ * @endcode
+ */
+#if !defined(INCBIN_OUTPUT_SECTION)
+#  if defined(__APPLE__)
+#    define INCBIN_OUTPUT_SECTION         ".const_data"
+#  else
+#    define INCBIN_OUTPUT_SECTION         ".rodata"
+#  endif
+#endif
+
+#if defined(__APPLE__)
+/* The directives are different for Apple-branded compilers */
+#  define INCBIN_SECTION         INCBIN_OUTPUT_SECTION "\n"
+#  define INCBIN_GLOBAL(NAME)    ".globl " INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME "\n"
+#  define INCBIN_INT             ".long "
+#  define INCBIN_MANGLE          "_"
+#  define INCBIN_BYTE            ".byte "
+#  define INCBIN_TYPE(...)
+#else
+#  define INCBIN_SECTION         ".section " INCBIN_OUTPUT_SECTION "\n"
+#  define INCBIN_GLOBAL(NAME)    ".global " INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME "\n"
+#  if defined(__ghs__)
+#    define INCBIN_INT           ".word "
+#  else
+#    define INCBIN_INT           ".int "
+#  endif
+#  if defined(__USER_LABEL_PREFIX__)
+#    define INCBIN_MANGLE        INCBIN_STRINGIZE(__USER_LABEL_PREFIX__)
+#  else
+#    define INCBIN_MANGLE        ""
+#  endif
+#  if defined(INCBIN_ARM)
+/* On arm assemblers, `@' is used as a line comment token */
+#    define INCBIN_TYPE(NAME)    ".type " INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME ", %object\n"
+#  elif defined(__MINGW32__) || defined(__MINGW64__)
+/* Mingw doesn't support this directive either */
+#    define INCBIN_TYPE(NAME)
+#  else
+/* It's safe to use `@' on other architectures */
+#    define INCBIN_TYPE(NAME)    ".type " INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME ", @object\n"
+#  endif
+#  define INCBIN_BYTE            ".byte "
+#endif
+
+/* List of style types used for symbol names */
+#define INCBIN_STYLE_CAMEL 0
+#define INCBIN_STYLE_SNAKE 1
+
+/**
+ * @brief Specify the prefix to use for symbol names.
+ *
+ * By default this is `g', producing symbols of the form:
+ * @code
+ * #include "incbin.h"
+ * INCBIN(Foo, "foo.txt");
+ *
+ * // Now you have the following symbols:
+ * // const unsigned char gFooData[];
+ * // const unsigned char *const gFooEnd;
+ * // const unsigned int gFooSize;
+ * @endcode
+ *
+ * If however you specify a prefix before including: e.g:
+ * @code
+ * #define INCBIN_PREFIX incbin
+ * #include "incbin.h"
+ * INCBIN(Foo, "foo.txt");
+ *
+ * // Now you have the following symbols instead:
+ * // const unsigned char incbinFooData[];
+ * // const unsigned char *const incbinFooEnd;
+ * // const unsigned int incbinFooSize;
+ * @endcode
+ */
+#if !defined(INCBIN_PREFIX)
+#  define INCBIN_PREFIX g
+#endif
+
+/**
+ * @brief Specify the style used for symbol names.
+ *
+ * Possible options are
+ * - INCBIN_STYLE_CAMEL "CamelCase"
+ * - INCBIN_STYLE_SNAKE "snake_case"
+ *
+ * Default option is *INCBIN_STYLE_CAMEL* producing symbols of the form:
+ * @code
+ * #include "incbin.h"
+ * INCBIN(Foo, "foo.txt");
+ *
+ * // Now you have the following symbols:
+ * // const unsigned char <prefix>FooData[];
+ * // const unsigned char *const <prefix>FooEnd;
+ * // const unsigned int <prefix>FooSize;
+ * @endcode
+ *
+ * If however you specify a style before including: e.g:
+ * @code
+ * #define INCBIN_STYLE INCBIN_STYLE_SNAKE
+ * #include "incbin.h"
+ * INCBIN(foo, "foo.txt");
+ *
+ * // Now you have the following symbols:
+ * // const unsigned char <prefix>foo_data[];
+ * // const unsigned char *const <prefix>foo_end;
+ * // const unsigned int <prefix>foo_size;
+ * @endcode
+ */
+#if !defined(INCBIN_STYLE)
+#  define INCBIN_STYLE INCBIN_STYLE_CAMEL
+#endif
+
+/* Style lookup tables */
+#define INCBIN_STYLE_0_DATA Data
+#define INCBIN_STYLE_0_END End
+#define INCBIN_STYLE_0_SIZE Size
+#define INCBIN_STYLE_1_DATA _data
+#define INCBIN_STYLE_1_END _end
+#define INCBIN_STYLE_1_SIZE _size
+
+/* Style lookup: returning identifier */
+#define INCBIN_STYLE_IDENT(TYPE) \
+    INCBIN_CONCATENATE( \
+        INCBIN_STYLE_, \
+        INCBIN_CONCATENATE( \
+            INCBIN_EVAL(INCBIN_STYLE), \
+            INCBIN_CONCATENATE(_, TYPE)))
+
+/* Style lookup: returning string literal */
+#define INCBIN_STYLE_STRING(TYPE) \
+    INCBIN_STRINGIZE( \
+        INCBIN_STYLE_IDENT(TYPE)) \
+
+/* Generate the global labels by indirectly invoking the macro
+ * with our style type and concatenate the name against them. */
+#define INCBIN_GLOBAL_LABELS(NAME, TYPE) \
+    INCBIN_INVOKE( \
+        INCBIN_GLOBAL, \
+        INCBIN_CONCATENATE( \
+            NAME, \
+            INCBIN_INVOKE( \
+                INCBIN_STYLE_IDENT, \
+                TYPE))) \
+    INCBIN_INVOKE( \
+        INCBIN_TYPE, \
+        INCBIN_CONCATENATE( \
+            NAME, \
+            INCBIN_INVOKE( \
+                INCBIN_STYLE_IDENT, \
+                TYPE)))
+
+/**
+ * @brief Externally reference binary data included in another translation unit.
+ *
+ * Produces three external symbols that reference the binary data included in
+ * another translation unit.
+ *
+ * The symbol names are a concatenation of `INCBIN_PREFIX' before *NAME*; with
+ * "Data", as well as "End" and "Size" after. An example is provided below.
+ *
+ * @param NAME The name given for the binary data
+ *
+ * @code
+ * INCBIN_EXTERN(Foo);
+ *
+ * // Now you have the following symbols:
+ * // extern const unsigned char <prefix>FooData[];
+ * // extern const unsigned char *const <prefix>FooEnd;
+ * // extern const unsigned int <prefix>FooSize;
+ * @endcode
+ */
+#define INCBIN_EXTERN(NAME) \
+    INCBIN_EXTERNAL const INCBIN_ALIGN unsigned char \
+        INCBIN_CONCATENATE( \
+            INCBIN_CONCATENATE(INCBIN_PREFIX, NAME), \
+            INCBIN_STYLE_IDENT(DATA))[]; \
+    INCBIN_EXTERNAL const INCBIN_ALIGN unsigned char *const \
+    INCBIN_CONCATENATE( \
+        INCBIN_CONCATENATE(INCBIN_PREFIX, NAME), \
+        INCBIN_STYLE_IDENT(END)); \
+    INCBIN_EXTERNAL const unsigned int \
+        INCBIN_CONCATENATE( \
+            INCBIN_CONCATENATE(INCBIN_PREFIX, NAME), \
+            INCBIN_STYLE_IDENT(SIZE))
+
+/**
+ * @brief Include a binary file into the current translation unit.
+ *
+ * Includes a binary file into the current translation unit, producing three symbols
+ * for objects that encode the data and size respectively.
+ *
+ * The symbol names are a concatenation of `INCBIN_PREFIX' before *NAME*; with
+ * "Data", as well as "End" and "Size" after. An example is provided below.
+ *
+ * @param NAME The name to associate with this binary data (as an identifier.)
+ * @param FILENAME The file to include (as a string literal.)
+ *
+ * @code
+ * INCBIN(Icon, "icon.png");
+ *
+ * // Now you have the following symbols:
+ * // const unsigned char <prefix>IconData[];
+ * // const unsigned char *const <prefix>IconEnd;
+ * // const unsigned int <prefix>IconSize;
+ * @endcode
+ *
+ * @warning This must be used in global scope
+ * @warning The identifiers may be different if INCBIN_STYLE is not default
+ *
+ * To externally reference the data included by this in another translation unit
+ * please @see INCBIN_EXTERN.
+ */
+#ifdef _MSC_VER
+#define INCBIN(NAME, FILENAME) \
+    INCBIN_EXTERN(NAME)
+#else
+#define INCBIN(NAME, FILENAME) \
+    __asm__(INCBIN_SECTION \
+            INCBIN_GLOBAL_LABELS(NAME, DATA) \
+            INCBIN_ALIGN_HOST \
+            INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME INCBIN_STYLE_STRING(DATA) ":\n" \
+            INCBIN_MACRO " \"" FILENAME "\"\n" \
+            INCBIN_GLOBAL_LABELS(NAME, END) \
+            INCBIN_ALIGN_BYTE \
+            INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME INCBIN_STYLE_STRING(END) ":\n" \
+                INCBIN_BYTE "1\n" \
+            INCBIN_GLOBAL_LABELS(NAME, SIZE) \
+            INCBIN_ALIGN_HOST \
+            INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME INCBIN_STYLE_STRING(SIZE) ":\n" \
+                INCBIN_INT INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME INCBIN_STYLE_STRING(END) " - " \
+                           INCBIN_MANGLE INCBIN_STRINGIZE(INCBIN_PREFIX) #NAME INCBIN_STYLE_STRING(DATA) "\n" \
+            INCBIN_ALIGN_HOST \
+            ".text\n" \
+    ); \
+    INCBIN_EXTERN(NAME)
+
+#endif
+
+namespace {
+// Macro to embed the default efficiently updatable neural network (NNUE) file
+// data in the engine binary (using incbin.h, by Dale Weiler).
+// This macro invocation will declare the following three variables
+//     const unsigned char        gEmbeddedNNUEData[];  // a pointer to the embedded data
+//     const unsigned char *const gEmbeddedNNUEEnd;     // a marker to the end
+//     const unsigned int         gEmbeddedNNUESize;    // the size of the embedded file
+// Note that this does not work in Microsoft Visual Studio.
+#if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF)
+INCBIN(EmbeddedNNUEBig, EvalFileDefaultNameBig);
+INCBIN(EmbeddedNNUESmall, EvalFileDefaultNameSmall);
+#else
+const unsigned char        gEmbeddedNNUEBigData[1]   = {0x0};
+const unsigned char* const gEmbeddedNNUEBigEnd       = &gEmbeddedNNUEBigData[1];
+const unsigned int         gEmbeddedNNUEBigSize      = 1;
+const unsigned char        gEmbeddedNNUESmallData[1] = {0x0};
+const unsigned char* const gEmbeddedNNUESmallEnd     = &gEmbeddedNNUESmallData[1];
+const unsigned int         gEmbeddedNNUESmallSize    = 1;
+#endif
+
+struct EmbeddedNNUE {
+    EmbeddedNNUE(const unsigned char* embeddedData,
+                 const unsigned char* embeddedEnd,
+                 const unsigned int   embeddedSize) :
+        data(embeddedData),
+        end(embeddedEnd),
+        size(embeddedSize) {}
+    const unsigned char* data;
+    const unsigned char* end;
+    const unsigned int   size;
+};
+
+using namespace Stockfish::Eval::NNUE;
+
+EmbeddedNNUE get_embedded(EmbeddedNNUEType type) {
+    if (type == EmbeddedNNUEType::BIG)
+        return EmbeddedNNUE(gEmbeddedNNUEBigData, gEmbeddedNNUEBigEnd, gEmbeddedNNUEBigSize);
+    else
+        return EmbeddedNNUE(gEmbeddedNNUESmallData, gEmbeddedNNUESmallEnd, gEmbeddedNNUESmallSize);
+}
+
+}
+
+namespace Stockfish::Eval::NNUE {
+
+namespace Detail {
+
+// Initialize the evaluation function parameters
+template<typename T>
+void initialize(AlignedPtr<T>& pointer) {
+
+    pointer.reset(reinterpret_cast<T*>(std_aligned_alloc(alignof(T), sizeof(T))));
+    std::memset(pointer.get(), 0, sizeof(T));
+}
+
+template<typename T>
+void initialize(LargePagePtr<T>& pointer) {
+
+    static_assert(alignof(T) <= 4096,
+                  "aligned_large_pages_alloc() may fail for such a big alignment requirement of T");
+    pointer.reset(reinterpret_cast<T*>(aligned_large_pages_alloc(sizeof(T))));
+    std::memset(pointer.get(), 0, sizeof(T));
+}
+
+// Read evaluation function parameters
+template<typename T>
+bool read_parameters(std::istream& stream, T& reference) {
+
+    std::uint32_t header;
+    header = read_little_endian<std::uint32_t>(stream);
+    if (!stream || header != T::get_hash_value())
+        return false;
+    return reference.read_parameters(stream);
+}
+
+// Write evaluation function parameters
+template<typename T>
+bool write_parameters(std::ostream& stream, const T& reference) {
+
+    write_little_endian<std::uint32_t>(stream, T::get_hash_value());
+    return reference.write_parameters(stream);
+}
+
+}  // namespace Detail
+
+template<typename Arch, typename Transformer>
+void Network<Arch, Transformer>::load(const std::string& rootDirectory, std::string evalfilePath) {
+#if defined(DEFAULT_NNUE_DIRECTORY)
+    std::vector<std::string> dirs = {"<internal>", "", rootDirectory,
+                                     stringify(DEFAULT_NNUE_DIRECTORY)};
+#else
+    std::vector<std::string> dirs = {"<internal>", "", rootDirectory};
+#endif
+
+    if (evalfilePath.empty())
+        evalfilePath = evalFile.defaultName;
+
+    for (const auto& directory : dirs)
+    {
+        if (evalFile.current != evalfilePath)
+        {
+            if (directory != "<internal>")
+            {
+                load_user_net(directory, evalfilePath);
+            }
+
+            if (directory == "<internal>" && evalfilePath == evalFile.defaultName)
+            {
+                load_internal();
+            }
+        }
+    }
+}
+
+template<typename Arch, typename Transformer>
+bool Network<Arch, Transformer>::save(const std::optional<std::string>& filename) const {
+    std::string actualFilename;
+    std::string msg;
+
+    if (filename.has_value())
+        actualFilename = filename.value();
+    else
+    {
+        if (evalFile.current != evalFile.defaultName)
+        {
+            msg = "Failed to export a net. "
+                  "A non-embedded net can only be saved if the filename is specified";
+
+            sync_cout << msg << sync_endl;
+            return false;
+        }
+
+        actualFilename = evalFile.defaultName;
+    }
+
+    std::ofstream stream(actualFilename, std::ios_base::binary);
+    bool          saved = save(stream, evalFile.current, evalFile.netDescription);
+
+    msg = saved ? "Network saved successfully to " + actualFilename : "Failed to export a net";
+
+    sync_cout << msg << sync_endl;
+    return saved;
+}
+
+template<typename Arch, typename Transformer>
+Value Network<Arch, Transformer>::evaluate(const Position& pos,
+                                           bool            adjusted,
+                                           int*            complexity,
+                                           bool            psqtOnly) const {
+    // We manually align the arrays on the stack because with gcc < 9.3
+    // overaligning stack variables with alignas() doesn't work correctly.
+
+    constexpr uint64_t alignment = CacheLineSize;
+    constexpr int      delta     = 24;
+
+#if defined(ALIGNAS_ON_STACK_VARIABLES_BROKEN)
+    TransformedFeatureType transformedFeaturesUnaligned
+      [FeatureTransformer<Arch::TransformedFeatureDimensions, nullptr>::BufferSize
+       + alignment / sizeof(TransformedFeatureType)];
+
+    auto* transformedFeatures = align_ptr_up<alignment>(&transformedFeaturesUnaligned[0]);
+#else
+    alignas(alignment) TransformedFeatureType transformedFeatures
+      [FeatureTransformer<Arch::TransformedFeatureDimensions, nullptr>::BufferSize];
+#endif
+
+    ASSERT_ALIGNED(transformedFeatures, alignment);
+
+    const int  bucket = (pos.count<ALL_PIECES>() - 1) / 4;
+    const auto psqt   = featureTransformer->transform(pos, transformedFeatures, bucket, psqtOnly);
+    const auto positional = !psqtOnly ? (network[bucket]->propagate(transformedFeatures)) : 0;
+
+    if (complexity)
+        *complexity = !psqtOnly ? std::abs(psqt - positional) / OutputScale : 0;
+
+    // Give more value to positional evaluation when adjusted flag is set
+    if (adjusted)
+        return static_cast<Value>(((1024 - delta) * psqt + (1024 + delta) * positional)
+                                  / (1024 * OutputScale));
+    else
+        return static_cast<Value>((psqt + positional) / OutputScale);
+}
+
+template<typename Arch, typename Transformer>
+void Network<Arch, Transformer>::verify(std::string evalfilePath) const {
+    if (evalfilePath.empty())
+        evalfilePath = evalFile.defaultName;
+
+    if (evalFile.current != evalfilePath)
+    {
+        std::string msg1 =
+          "Network evaluation parameters compatible with the engine must be available.";
+        std::string msg2 = "The network file " + evalfilePath + " was not loaded successfully.";
+        std::string msg3 = "The UCI option EvalFile might need to specify the full path, "
+                           "including the directory name, to the network file.";
+        std::string msg4 = "The default net can be downloaded from: "
+                           "https://tests.stockfishchess.org/api/nn/"
+                         + evalFile.defaultName;
+        std::string msg5 = "The engine will be terminated now.";
+
+        sync_cout << "info string ERROR: " << msg1 << sync_endl;
+        sync_cout << "info string ERROR: " << msg2 << sync_endl;
+        sync_cout << "info string ERROR: " << msg3 << sync_endl;
+        sync_cout << "info string ERROR: " << msg4 << sync_endl;
+        sync_cout << "info string ERROR: " << msg5 << sync_endl;
+        exit(EXIT_FAILURE);
+    }
+
+    sync_cout << "info string NNUE evaluation using " << evalfilePath << sync_endl;
+}
+
+template<typename Arch, typename Transformer>
+void Network<Arch, Transformer>::hint_common_access(const Position& pos, bool psqtOnl) const {
+    featureTransformer->hint_common_access(pos, psqtOnl);
+}
+
+template<typename Arch, typename Transformer>
+NnueEvalTrace Network<Arch, Transformer>::trace_evaluate(const Position& pos) const {
+    // We manually align the arrays on the stack because with gcc < 9.3
+    // overaligning stack variables with alignas() doesn't work correctly.
+    constexpr uint64_t alignment = CacheLineSize;
+
+#if defined(ALIGNAS_ON_STACK_VARIABLES_BROKEN)
+    TransformedFeatureType transformedFeaturesUnaligned
+      [FeatureTransformer<Arch::TransformedFeatureDimensions, nullptr>::BufferSize
+       + alignment / sizeof(TransformedFeatureType)];
+
+    auto* transformedFeatures = align_ptr_up<alignment>(&transformedFeaturesUnaligned[0]);
+#else
+    alignas(alignment) TransformedFeatureType transformedFeatures
+      [FeatureTransformer<Arch::TransformedFeatureDimensions, nullptr>::BufferSize];
+#endif
+
+    ASSERT_ALIGNED(transformedFeatures, alignment);
+
+    NnueEvalTrace t{};
+    t.correctBucket = (pos.count<ALL_PIECES>() - 1) / 4;
+    for (IndexType bucket = 0; bucket < LayerStacks; ++bucket)
+    {
+        const auto materialist =
+          featureTransformer->transform(pos, transformedFeatures, bucket, false);
+        const auto positional = network[bucket]->propagate(transformedFeatures);
+
+        t.psqt[bucket]       = static_cast<Value>(materialist / OutputScale);
+        t.positional[bucket] = static_cast<Value>(positional / OutputScale);
+    }
+
+    return t;
+}
+
+template<typename Arch, typename Transformer>
+void Network<Arch, Transformer>::load_user_net(const std::string& dir,
+                                               const std::string& evalfilePath) {
+    std::ifstream stream(dir + evalfilePath, std::ios::binary);
+    auto          description = load(stream);
+
+    if (description.has_value())
+    {
+        evalFile.current        = evalfilePath;
+        evalFile.netDescription = description.value();
+    }
+}
+
+template<typename Arch, typename Transformer>
+void Network<Arch, Transformer>::load_internal() {
+    // C++ way to prepare a buffer for a memory stream
+    class MemoryBuffer: public std::basic_streambuf<char> {
+       public:
+        MemoryBuffer(char* p, size_t n) {
+            setg(p, p, p + n);
+            setp(p, p + n);
+        }
+    };
+
+    const auto embedded = get_embedded(embeddedType);
+
+    MemoryBuffer buffer(const_cast<char*>(reinterpret_cast<const char*>(embedded.data)),
+                        size_t(embedded.size));
+
+    std::istream stream(&buffer);
+    auto         description = load(stream);
+
+    if (description.has_value())
+    {
+        evalFile.current        = evalFile.defaultName;
+        evalFile.netDescription = description.value();
+    }
+}
+
+template<typename Arch, typename Transformer>
+void Network<Arch, Transformer>::initialize() {
+    Detail::initialize(featureTransformer);
+    for (std::size_t i = 0; i < LayerStacks; ++i)
+        Detail::initialize(network[i]);
+}
+
+template<typename Arch, typename Transformer>
+bool Network<Arch, Transformer>::save(std::ostream&      stream,
+                                      const std::string& name,
+                                      const std::string& netDescription) const {
+    if (name.empty() || name == "None")
+        return false;
+
+    return write_parameters(stream, netDescription);
+}
+
+template<typename Arch, typename Transformer>
+std::optional<std::string> Network<Arch, Transformer>::load(std::istream& stream) {
+    initialize();
+    std::string description;
+
+    return read_parameters(stream, description) ? std::make_optional(description) : std::nullopt;
+}
+
+// Read network header
+template<typename Arch, typename Transformer>
+bool Network<Arch, Transformer>::read_header(std::istream&  stream,
+                                             std::uint32_t* hashValue,
+                                             std::string*   desc) const {
+    std::uint32_t version, size;
+
+    version    = read_little_endian<std::uint32_t>(stream);
+    *hashValue = read_little_endian<std::uint32_t>(stream);
+    size       = read_little_endian<std::uint32_t>(stream);
+    if (!stream || version != Version)
+        return false;
+    desc->resize(size);
+    stream.read(&(*desc)[0], size);
+    return !stream.fail();
+}
+
+// Write network header
+template<typename Arch, typename Transformer>
+bool Network<Arch, Transformer>::write_header(std::ostream&      stream,
+                                              std::uint32_t      hashValue,
+                                              const std::string& desc) const {
+    write_little_endian<std::uint32_t>(stream, Version);
+    write_little_endian<std::uint32_t>(stream, hashValue);
+    write_little_endian<std::uint32_t>(stream, std::uint32_t(desc.size()));
+    stream.write(&desc[0], desc.size());
+    return !stream.fail();
+}
+
+template<typename Arch, typename Transformer>
+bool Network<Arch, Transformer>::read_parameters(std::istream& stream,
+                                                 std::string&  netDescription) const {
+    std::uint32_t hashValue;
+    if (!read_header(stream, &hashValue, &netDescription))
+        return false;
+    if (hashValue != Network::hash)
+        return false;
+    if (!Detail::read_parameters(stream, *featureTransformer))
+        return false;
+    for (std::size_t i = 0; i < LayerStacks; ++i)
+    {
+        if (!Detail::read_parameters(stream, *(network[i])))
+            return false;
+    }
+    return stream && stream.peek() == std::ios::traits_type::eof();
+}
+
+template<typename Arch, typename Transformer>
+bool Network<Arch, Transformer>::write_parameters(std::ostream&      stream,
+                                                  const std::string& netDescription) const {
+    if (!write_header(stream, Network::hash, netDescription))
+        return false;
+    if (!Detail::write_parameters(stream, *featureTransformer))
+        return false;
+    for (std::size_t i = 0; i < LayerStacks; ++i)
+    {
+        if (!Detail::write_parameters(stream, *(network[i])))
+            return false;
+    }
+    return bool(stream);
+}
+
+// Explicit template instantiation
+
+template class Network<
+  NetworkArchitecture<TransformedFeatureDimensionsBig, L2Big, L3Big>,
+  FeatureTransformer<TransformedFeatureDimensionsBig, &StateInfo::accumulatorBig>>;
+
+template class Network<
+  NetworkArchitecture<TransformedFeatureDimensionsSmall, L2Small, L3Small>,
+  FeatureTransformer<TransformedFeatureDimensionsSmall, &StateInfo::accumulatorSmall>>;
+
+}  // namespace Stockfish::Eval::NNUE
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #include <cassert>
 #include <initializer_list>
 
@@ -7862,18 +8341,18 @@ void MovePicker::score() {
             m.value += bool(pos.check_squares(pt) & to) * 16384;
 
             // bonus for escaping from capture
-            m.value += threatenedPieces & from ? (pt == QUEEN && !(to & threatenedByRook)   ? 50000
-                                                  : pt == ROOK && !(to & threatenedByMinor) ? 25000
-                                                  : !(to & threatenedByPawn)                ? 15000
+            m.value += threatenedPieces & from ? (pt == QUEEN && !(to & threatenedByRook)   ? 51000
+                                                  : pt == ROOK && !(to & threatenedByMinor) ? 24950
+                                                  : !(to & threatenedByPawn)                ? 14450
                                                                                             : 0)
                                                : 0;
 
             // malus for putting piece en prise
             m.value -= !(threatenedPieces & from)
-                       ? (pt == QUEEN ? bool(to & threatenedByRook) * 50000
-                                          + bool(to & threatenedByMinor) * 10000
-                          : pt == ROOK ? bool(to & threatenedByMinor) * 25000
-                          : pt != PAWN ? bool(to & threatenedByPawn) * 15000
+                       ? (pt == QUEEN ? bool(to & threatenedByRook) * 48150
+                                          + bool(to & threatenedByMinor) * 10650
+                          : pt == ROOK ? bool(to & threatenedByMinor) * 24500
+                          : pt != PAWN ? bool(to & threatenedByPawn) * 14950
                                        : 0)
                        : 0;
         }
@@ -7913,7 +8392,7 @@ Move MovePicker::select(Pred filter) {
 // moves left, picking the move with the highest score from a list of generated moves.
 Move MovePicker::next_move(bool skipQuiets) {
 
-    auto quiet_threshold = [](Depth d) { return -3330 * d; };
+    auto quiet_threshold = [](Depth d) { return -3550 * d; };
 
 top:
     switch (stage)
@@ -8108,6 +8587,12 @@ void TimeManagement::init(Search::LimitsType& limits,
     // Maximum move horizon of 50 moves
     int mtg = 50;
 
+    // if less than one second, gradually reduce mtg
+    if (limits.time[us] < 1000 && (double(mtg) / limits.time[us] > 0.05))
+    {
+        mtg = limits.time[us] * 0.05;
+    }
+
     // Make sure timeLeft is > 0 since we may use it as a divisor
     TimePoint timeLeft = std::max(TimePoint(1), limits.time[us] + limits.inc[us] * (mtg - 1)
                                                   - moveOverhead * (2 + mtg));
@@ -8167,8 +8652,8 @@ void TimeManagement::init(Search::LimitsType& limits,
 #include <cstdlib>
 #include <initializer_list>
 #include <iostream>
-#include <utility>
 #include <sstream>
+#include <utility>
 
 namespace Stockfish {
 
@@ -8179,8 +8664,8 @@ namespace {
 
 // Futility margin
 Value futility_margin(Depth d, bool noTtCutNode, bool improving, bool oppWorsening) {
-    Value futilityMult       = 117 - 44 * noTtCutNode;
-    Value improvingDeduction = 3 * improving * futilityMult / 2;
+    Value futilityMult       = 122 - 46 * noTtCutNode;
+    Value improvingDeduction = 57 * improving * futilityMult / 32;
     Value worseningDeduction = (331 + 45 * improving) * oppWorsening * futilityMult / 1024;
 
     return futilityMult * d - improvingDeduction - worseningDeduction;
@@ -8193,15 +8678,15 @@ constexpr int futility_move_count(bool improving, Depth depth) {
 // Add correctionHistory value to raw staticEval and guarantee evaluation does not hit the tablebase range
 Value to_corrected_static_eval(Value v, const Worker& w, const Position& pos) {
     auto cv = w.correctionHistory[pos.side_to_move()][pawn_structure_index<Correction>(pos)];
-    v += cv * std::abs(cv) / 12475;
+    v += cv * std::abs(cv) / 11450;
     return std::clamp(v, VALUE_TB_LOSS_IN_MAX_PLY + 1, VALUE_TB_WIN_IN_MAX_PLY - 1);
 }
 
 // History and stats update bonus, based on depth
-int stat_bonus(Depth d) { return std::min(246 * d - 351, 1136); }
+int stat_bonus(Depth d) { return std::min(249 * d - 327, 1192); }
 
 // History and stats update malus, based on depth
-int stat_malus(Depth d) { return std::min(519 * d - 306, 1258); }
+int stat_malus(Depth d) { return std::min(516 * d - 299, 1254); }
 
 // Add a small random component to draw evaluations to avoid 3-fold blindness
 Value value_draw(size_t nodes) { return VALUE_DRAW - 1 + Value(nodes & 0x2); }
@@ -8235,7 +8720,8 @@ Search::Worker::Worker(SharedState&                    sharedState,
     manager(std::move(sm)),
     options(sharedState.options),
     threads(sharedState.threads),
-    tt(sharedState.tt) {
+    tt(sharedState.tt),
+    networks(sharedState.networks) {
     clear();
 }
 
@@ -8254,7 +8740,8 @@ void Search::Worker::start_searching() {
     {
         rootMoves.emplace_back(Move::none());
         sync_cout << "info depth 0 score "
-                  << UCI::value(rootPos.checkers() ? -VALUE_MATE : VALUE_DRAW) << sync_endl;
+                  << UCI::to_score(rootPos.checkers() ? -VALUE_MATE : VALUE_DRAW, rootPos)
+                  << sync_endl;
     }
     else
     {
@@ -8295,7 +8782,7 @@ void Search::Worker::start_searching() {
 // consumed, the user stops the search, or the maximum search depth is reached.
 void Search::Worker::iterative_deepening() {
 
-    SearchManager* mainThread = (thread_idx == 0 ? main_manager() : nullptr);
+    SearchManager* mainThread = (is_mainthread() ? main_manager() : nullptr);
 
     Move pv[MAX_PLY + 1];
 
@@ -8370,12 +8857,12 @@ void Search::Worker::iterative_deepening() {
 
             // Reset aspiration window starting size
             Value avg = rootMoves[pvIdx].averageScore;
-            delta     = 9 + avg * avg / 12487;
+            delta     = 9 + avg * avg / 12800;
             alpha     = std::max(avg - delta, -VALUE_INFINITE);
             beta      = std::min(avg + delta, VALUE_INFINITE);
 
             // Adjust optimism based on root move's averageScore (~4 Elo)
-            optimism[us]  = 134 * avg / (std::abs(avg) + 97);
+            optimism[us]  = 130 * avg / (std::abs(avg) + 90);
             optimism[~us] = -optimism[us];
 
             // Start with a small aspiration window and, in the case of a fail
@@ -8476,9 +8963,7 @@ void Search::Worker::iterative_deepening() {
         // Do we have time for the next iteration? Can we stop searching now?
         if (limits.use_time_management() && !threads.stop && !mainThread->stopOnPonderhit)
         {
-            auto bestmove    = rootMoves[0].pv[0];
-            int  nodesEffort = effort[bestmove.from_sq()][bestmove.to_sq()] * 100
-                            / std::max(size_t(1), size_t(nodes));
+            int nodesEffort = rootMoves[0].effort * 100 / std::max(size_t(1), size_t(nodes));
 
             double fallingEval = (1067 + 223 * (mainThread->bestPreviousAverageScore - bestValue)
                                   + 97 * (mainThread->iterValue[iterIdx] - bestValue))
@@ -8500,9 +8985,7 @@ void Search::Worker::iterative_deepening() {
             if (completedDepth >= 10 && nodesEffort >= 97
                 && mainThread->tm.elapsed() > totalTime * 0.739
                 && !mainThread->ponder)
-            {
                 threads.stop = true;
-            }
 
             // Stop the search if we have exceeded the totalTime
             if (mainThread->tm.elapsed() > totalTime)
@@ -8514,11 +8997,10 @@ void Search::Worker::iterative_deepening() {
                 else
                     threads.stop = true;
             }
-            else if (!mainThread->ponder
-                     && mainThread->tm.elapsed() > totalTime * 0.506)
-                threads.increaseDepth = false;
             else
-                threads.increaseDepth = true;
+                threads.increaseDepth =
+                  mainThread->ponder
+                  || mainThread->tm.elapsed() <= totalTime * 0.506;
         }
 
         mainThread->iterValue[iterIdx] = bestValue;
@@ -8603,8 +9085,9 @@ Value Search::Worker::search(
         // Step 2. Check for aborted search and immediate draw
         if (threads.stop.load(std::memory_order_relaxed) || pos.is_draw(ss->ply)
             || ss->ply >= MAX_PLY)
-            return (ss->ply >= MAX_PLY && !ss->inCheck) ? evaluate(pos, thisThread->optimism[us])
-                                                        : value_draw(thisThread->nodes);
+            return (ss->ply >= MAX_PLY && !ss->inCheck)
+                   ? evaluate(networks, pos, thisThread->optimism[us])
+                   : value_draw(thisThread->nodes);
 
         // Step 3. Mate distance pruning. Even if we mate at the next move our score
         // would be at best mate_in(ss->ply + 1), but if alpha is already bigger because
@@ -8683,7 +9166,7 @@ Value Search::Worker::search(
     {
         // Providing the hint that this node's accumulator will be used often
         // brings significant Elo gain (~13 Elo).
-        Eval::NNUE::hint_common_parent_position(pos);
+        Eval::NNUE::hint_common_parent_position(pos, networks);
         unadjustedStaticEval = eval = ss->staticEval;
     }
     else if (ss->ttHit)
@@ -8691,9 +9174,9 @@ Value Search::Worker::search(
         // Never assume anything about values stored in TT
         unadjustedStaticEval = tte->eval();
         if (unadjustedStaticEval == VALUE_NONE)
-            unadjustedStaticEval = evaluate(pos, thisThread->optimism[us]);
+            unadjustedStaticEval = evaluate(networks, pos, thisThread->optimism[us]);
         else if (PvNode)
-            Eval::NNUE::hint_common_parent_position(pos);
+            Eval::NNUE::hint_common_parent_position(pos, networks);
 
         ss->staticEval = eval = to_corrected_static_eval(unadjustedStaticEval, *thisThread, pos);
 
@@ -8703,7 +9186,7 @@ Value Search::Worker::search(
     }
     else
     {
-        unadjustedStaticEval = evaluate(pos, thisThread->optimism[us]);
+        unadjustedStaticEval = evaluate(networks, pos, thisThread->optimism[us]);
         ss->staticEval = eval = to_corrected_static_eval(unadjustedStaticEval, *thisThread, pos);
 
         // Static evaluation is saved as it was before adjustment by correction history
@@ -8714,12 +9197,12 @@ Value Search::Worker::search(
     // Use static evaluation difference to improve quiet move ordering (~9 Elo)
     if (((ss - 1)->currentMove).is_ok() && !(ss - 1)->inCheck && !priorCapture)
     {
-        int bonus = std::clamp(-14 * int((ss - 1)->staticEval + ss->staticEval), -1723, 1455);
+        int bonus = std::clamp(-14 * int((ss - 1)->staticEval + ss->staticEval), -1621, 1238);
         bonus     = bonus > 0 ? 2 * bonus : bonus / 2;
         thisThread->mainHistory[~us][((ss - 1)->currentMove).from_to()] << bonus;
         if (type_of(pos.piece_on(prevSq)) != PAWN && ((ss - 1)->currentMove).type_of() != PROMOTION)
             thisThread->pawnHistory[pawn_structure_index(pos)][pos.piece_on(prevSq)][prevSq]
-              << bonus / 4;
+              << bonus / 2;
     }
 
     // Set up the improving flag, which is true if current static evaluation is
@@ -8731,28 +9214,38 @@ Value Search::Worker::search(
                 ? ss->staticEval > (ss - 2)->staticEval
                 : (ss - 4)->staticEval != VALUE_NONE && ss->staticEval > (ss - 4)->staticEval;
 
-    opponentWorsening = ss->staticEval + (ss - 1)->staticEval > 2 && (depth != 2 || !improving);
+    opponentWorsening = ss->staticEval + (ss - 1)->staticEval > 2;
+
+    // Step 7. Razoring (~1 Elo)
+    // If eval is really low check with qsearch if it can exceed alpha, if it can't,
+    // return a fail low.
+    // Adjust razor margin according to cutoffCnt. (~1 Elo)
+    if (eval < alpha - 462 - (296 - 145 * ((ss + 1)->cutoffCnt > 3)) * depth * depth)
+    {
+        value = qsearch<NonPV>(pos, ss, alpha - 1, alpha);
+        if (value < alpha)
+            return value;
+    }
 
     // Step 8. Futility pruning: child node (~40 Elo)
     // The depth condition is important for mate finding.
-    if (!ss->ttPv && depth < 11
+    if (!ss->ttPv && depth < 12
         && eval - futility_margin(depth, cutNode && !ss->ttHit, improving, opponentWorsening)
-               - (ss - 1)->statScore / 314
+               - (ss - 1)->statScore / 287
              >= beta
-        && eval >= beta && eval < 30016  // smaller than TB wins
-        && (!ttMove || ttCapture))
+        && eval >= beta && eval < VALUE_TB_WIN_IN_MAX_PLY && (!ttMove || ttCapture))
         return beta > VALUE_TB_LOSS_IN_MAX_PLY ? (eval + beta) / 2 : eval;
 
     // Step 9. Null move search with verification search (~35 Elo)
-    if (!PvNode && (ss - 1)->currentMove != Move::null() && (ss - 1)->statScore < 16620
-        && eval >= beta && eval >= ss->staticEval && ss->staticEval >= beta - 21 * depth + 330
+    if (!PvNode && (ss - 1)->currentMove != Move::null() && (ss - 1)->statScore < 16211
+        && eval >= beta && eval >= ss->staticEval && ss->staticEval >= beta - 20 * depth + 314
         && !excludedMove && pos.non_pawn_material(us) && ss->ply >= thisThread->nmpMinPly
         && beta > VALUE_TB_LOSS_IN_MAX_PLY)
     {
         assert(eval - beta >= 0);
 
         // Null move dynamic reduction based on depth and eval
-        Depth R = std::min(int(eval - beta) / 154, 6) + depth / 3 + 4;
+        Depth R = std::min(int(eval - beta) / 151, 6) + depth / 3 + 4;
 
         ss->currentMove         = Move::null();
         ss->continuationHistory = &thisThread->continuationHistory[0][0][NO_PIECE][0];
@@ -8800,7 +9293,7 @@ Value Search::Worker::search(
     // Step 11. ProbCut (~10 Elo)
     // If we have a good enough capture (or queen promotion) and a reduced search returns a value
     // much above beta, we can (almost) safely prune the previous move.
-    probCutBeta = beta + 181 - 68 * improving;
+    probCutBeta = beta + 168 - 64 * improving;
     if (
       !PvNode && depth > 3
       && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
@@ -8850,13 +9343,13 @@ Value Search::Worker::search(
                 }
             }
 
-        Eval::NNUE::hint_common_parent_position(pos);
+        Eval::NNUE::hint_common_parent_position(pos, networks);
     }
 
 moves_loop:  // When in check, search starts here
 
     // Step 12. A small Probcut idea, when we are in check (~4 Elo)
-    probCutBeta = beta + 452;
+    probCutBeta = beta + 410;
     if (ss->inCheck && !PvNode && ttCapture && (tte->bound() & BOUND_LOWER)
         && tte->depth() >= depth - 4 && ttValue >= probCutBeta
         && std::abs(ttValue) < VALUE_TB_WIN_IN_MAX_PLY && std::abs(beta) < VALUE_TB_WIN_IN_MAX_PLY)
@@ -8923,7 +9416,7 @@ moves_loop:  // When in check, search starts here
                 {
                     Piece capturedPiece = pos.piece_on(move.to_sq());
                     int   futilityEval =
-                      ss->staticEval + 277 + 292 * lmrDepth + PieceValue[capturedPiece]
+                      ss->staticEval + 298 + 288 * lmrDepth + PieceValue[capturedPiece]
                       + thisThread->captureHistory[movedPiece][move.to_sq()][type_of(capturedPiece)]
                           / 7;
                     if (futilityEval < alpha)
@@ -8931,7 +9424,7 @@ moves_loop:  // When in check, search starts here
                 }
 
                 // SEE based pruning for captures and checks (~11 Elo)
-                if (!pos.see_ge(move, -197 * depth))
+                if (!pos.see_ge(move, -202 * depth))
                     continue;
             }
             else
@@ -8943,17 +9436,17 @@ moves_loop:  // When in check, search starts here
                   + thisThread->pawnHistory[pawn_structure_index(pos)][movedPiece][move.to_sq()];
 
                 // Continuation history based pruning (~2 Elo)
-                if (lmrDepth < 6 && history < -4211 * depth)
+                if (lmrDepth < 6 && history < -4125 * depth)
                     continue;
 
                 history += 2 * thisThread->mainHistory[us][move.from_to()];
 
-                lmrDepth += history / 6437;
+                lmrDepth += history / 5686;
 
                 // Futility pruning: parent node (~13 Elo)
                 if (!ss->inCheck && lmrDepth < 15
-                    && ss->staticEval + (bestValue < ss->staticEval - 57 ? 144 : 57)
-                           + 121 * lmrDepth
+                    && ss->staticEval + (bestValue < ss->staticEval - 55 ? 153 : 58)
+                           + 118 * lmrDepth
                          <= alpha)
                     continue;
 
@@ -8995,10 +9488,6 @@ moves_loop:  // When in check, search starts here
         if (PvNode)
             r--;
 
-        // Increase reduction on repetition (~1 Elo)
-        if (move == (ss - 4)->currentMove && pos.has_repeated())
-            r += 2;
-
         // Increase reduction if next ply has a lot of fail high (~5 Elo)
         if ((ss + 1)->cutoffCnt > 3)
             r++;
@@ -9011,10 +9500,10 @@ moves_loop:  // When in check, search starts here
         ss->statScore = 2 * thisThread->mainHistory[us][move.from_to()]
                       + (*contHist[0])[movedPiece][move.to_sq()]
                       + (*contHist[1])[movedPiece][move.to_sq()]
-                      + (*contHist[3])[movedPiece][move.to_sq()] - 4392;
+                      + (*contHist[3])[movedPiece][move.to_sq()] - 4587;
 
         // Decrease/increase reduction for moves with a good/bad history (~8 Elo)
-        r -= ss->statScore / 14189;
+        r -= ss->statScore / 14956;
 
         // Step 17. Late moves reduction / extension (LMR, ~117 Elo)
         if (depth >= 2 && moveCount > 1 + rootNode)
@@ -9033,7 +9522,7 @@ moves_loop:  // When in check, search starts here
             {
                 // Adjust full-depth search based on LMR results - if the result
                 // was good enough search deeper, if it was bad enough search shallower.
-                const bool doDeeperSearch    = value > (bestValue + 49 + 2 * newDepth);  // (~1 Elo)
+                const bool doDeeperSearch    = value > (bestValue + 48 + 2 * newDepth);  // (~1 Elo)
                 const bool doShallowerSearch = value < bestValue + newDepth;             // (~2 Elo)
 
                 newDepth += doDeeperSearch - doShallowerSearch;
@@ -9074,9 +9563,6 @@ moves_loop:  // When in check, search starts here
         // Step 19. Undo move
         pos.undo_move(move);
 
-        if (rootNode)
-            effort[move.from_sq()][move.to_sq()] += nodes - nodeCount;
-
         assert(value > -VALUE_INFINITE && value < VALUE_INFINITE);
 
         // Step 20. Check for a new best move
@@ -9090,6 +9576,8 @@ moves_loop:  // When in check, search starts here
         {
             RootMove& rm =
               *std::find(thisThread->rootMoves.begin(), thisThread->rootMoves.end(), move);
+
+            rm.effort += nodes - nodeCount;
 
             rm.averageScore =
               rm.averageScore != -VALUE_INFINITE ? (2 * value + rm.averageScore) / 3 : value;
@@ -9151,7 +9639,7 @@ moves_loop:  // When in check, search starts here
                 else
                 {
                     // Reduce other moves if we have found at least one score improvement (~2 Elo)
-                    if (depth > 2 && depth < 13 && beta < 13652 && value > -12761)
+                    if (depth > 2 && depth < 12 && beta < 13665 && value > -12276)
                         depth -= 2;
 
                     assert(depth > 0);
@@ -9194,8 +9682,9 @@ moves_loop:  // When in check, search starts here
     // Bonus for prior countermove that caused the fail low
     else if (!priorCapture && prevSq != SQ_NONE)
     {
-        int bonus = (depth > 5) + (PvNode || cutNode) + ((ss - 1)->statScore < -15736)
-                  + ((ss - 1)->moveCount > 11);
+        int bonus = (depth > 5) + (PvNode || cutNode) + ((ss - 1)->statScore < -14446)
+                  + ((ss - 1)->moveCount > 11)
+                  + (!ss->inCheck && bestValue <= ss->staticEval - 150);
         update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq,
                                       stat_bonus(depth) * bonus);
         thisThread->mainHistory[~us][((ss - 1)->currentMove).from_to()]
@@ -9283,8 +9772,9 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta,
 
     // Step 2. Check for an immediate draw or maximum ply reached
     if (pos.is_draw(ss->ply) || ss->ply >= MAX_PLY)
-        return (ss->ply >= MAX_PLY && !ss->inCheck) ? evaluate(pos, thisThread->optimism[us])
-                                                    : VALUE_DRAW;
+        return (ss->ply >= MAX_PLY && !ss->inCheck)
+               ? evaluate(networks, pos, thisThread->optimism[us])
+               : VALUE_DRAW;
 
     assert(0 <= ss->ply && ss->ply < MAX_PLY);
 
@@ -9315,7 +9805,7 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta,
             // Never assume anything about values stored in TT
             unadjustedStaticEval = tte->eval();
             if (unadjustedStaticEval == VALUE_NONE)
-                unadjustedStaticEval = evaluate(pos, thisThread->optimism[us]);
+                unadjustedStaticEval = evaluate(networks, pos, thisThread->optimism[us]);
             ss->staticEval = bestValue =
               to_corrected_static_eval(unadjustedStaticEval, *thisThread, pos);
 
@@ -9328,7 +9818,7 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta,
         {
             // In case of null move search, use previous static eval with a different sign
             unadjustedStaticEval = (ss - 1)->currentMove != Move::null()
-                                   ? evaluate(pos, thisThread->optimism[us])
+                                   ? evaluate(networks, pos, thisThread->optimism[us])
                                    : -(ss - 1)->staticEval;
             ss->staticEval       = bestValue =
               to_corrected_static_eval(unadjustedStaticEval, *thisThread, pos);
@@ -9347,7 +9837,7 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta,
         if (bestValue > alpha)
             alpha = bestValue;
 
-        futilityBase = ss->staticEval + 206;
+        futilityBase = ss->staticEval + 221;
     }
 
     const PieceToHistory* contHist[] = {(ss - 1)->continuationHistory,
@@ -9427,7 +9917,7 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta,
                 continue;
 
             // Do not search moves with bad enough SEE values (~5 Elo)
-            if (!pos.see_ge(move, -74))
+            if (!pos.see_ge(move, -79))
                 continue;
         }
 
@@ -9576,7 +10066,7 @@ void update_all_stats(const Position& pos,
 
     if (!pos.capture_stage(bestMove))
     {
-        int bestMoveBonus = bestValue > beta + 166 ? quietMoveBonus      // larger bonus
+        int bestMoveBonus = bestValue > beta + 167 ? quietMoveBonus      // larger bonus
                                                    : stat_bonus(depth);  // smaller bonus
 
         // Increase stats for the best move in case it was a quiet move
@@ -9708,10 +10198,10 @@ std::string SearchManager::pv(const Search::Worker&     worker,
         if (ss.rdbuf()->in_avail())  // Not at first line
             ss << "\n";
 
-        ss << "info depth " << d << " multipv " << i + 1 << " score " << UCI::value(v);
+        ss << "info depth " << d << " multipv " << i + 1 << " score " << UCI::to_score(v, pos);
 
         if (ShowWDL)
-            ss << UCI::wdl(v, pos.game_ply());
+            ss << UCI::wdl(v, pos);
 
         if (i == pvIdx && updated)  // previous-scores are exact
             ss << (rootMoves[i].scoreLowerbound
@@ -9750,7 +10240,6 @@ std::string SearchManager::pv(const Search::Worker&     worker,
 #include <deque>
 #include <memory>
 #include <utility>
-#include <array>
 
 namespace Stockfish {
 
@@ -9805,7 +10294,7 @@ void Thread::idle_loop() {
     // just check if running threads are below a threshold, in this case, all this
     // NUMA machinery is not needed.
     if (nthreads > 8)
-        WinProcGroup::bindThisThread(idx);
+        WinProcGroup::bind_this_thread(idx);
 
     while (true)
     {
@@ -9823,6 +10312,11 @@ void Thread::idle_loop() {
     }
 }
 
+Search::SearchManager* ThreadPool::main_manager() {
+    return static_cast<Search::SearchManager*>(main_thread()->worker.get()->manager.get());
+}
+
+uint64_t ThreadPool::nodes_searched() const { return accumulate(&Search::Worker::nodes); }
 // Creates/destroys threads to match the requested number.
 // Created and launched threads will immediately go to sleep in idle_loop.
 // Upon resizing, threads are recreated to allow for binding if necessary.
@@ -9870,15 +10364,14 @@ void ThreadPool::clear() {
 
 // Wakes up main thread waiting in idle_loop() and
 // returns immediately. Main thread will wake up other threads and start the search.
-void ThreadPool::start_thinking(Position&          pos,
+void ThreadPool::start_thinking(const OptionsMap&  options,
+                                Position&          pos,
                                 StateListPtr&      states,
-                                Search::LimitsType limits,
-                                bool               ponderMode) {
+                                Search::LimitsType limits) {
 
     main_thread()->wait_for_search_finished();
 
     main_manager()->stopOnPonderhit = stop = abortedSearch = false;
-    main_manager()->ponder                                 = ponderMode;
 
     increaseDepth = true;
 
@@ -9907,7 +10400,6 @@ void ThreadPool::start_thinking(Position&          pos,
         th->worker->rootMoves                              = rootMoves;
         th->worker->rootPos.set(pos.fen(), pos.is_chess960(), &th->worker->rootState);
         th->worker->rootState = setupStates->back();
-        th->worker->effort    = {};
     }
 
     main_thread()->start_searching();
@@ -10022,7 +10514,7 @@ void TranspositionTable::clear(size_t threadCount) {
         threads.emplace_back([this, idx, threadCount]() {
             // Thread binding gives faster search on systems with a first-touch policy
             if (threadCount > 8)
-                WinProcGroup::bindThisThread(idx);
+                WinProcGroup::bind_this_thread(idx);
 
             // Each thread will zero its part of the hash table
             const size_t stride = size_t(clusterCount / threadCount), start = size_t(stride * idx),
@@ -10060,8 +10552,8 @@ TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
     // Find an entry to be replaced according to the replacement strategy
     TTEntry* replace = tte;
     for (int i = 1; i < ClusterSize; ++i)
-        if (replace->depth8 - replace->relative_age(generation8)
-            > tte[i].depth8 - tte[i].relative_age(generation8))
+        if (replace->depth8 - replace->relative_age(generation8) * 2
+            > tte[i].depth8 - tte[i].relative_age(generation8) * 2)
             replace = &tte[i];
 
     return found = false, replace;
@@ -10261,12 +10753,13 @@ std::ostream& operator<<(std::ostream& os, const OptionsMap& om) {
 #include <cassert>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <deque>
 #include <memory>
 #include <sstream>
+#include <utility>
 #include <vector>
-#include <cstdint>
 
 /*
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
@@ -10300,25 +10793,19 @@ std::vector<std::string> setup_bench(const Position&, std::istream&);
 
 namespace Stockfish {
 
-constexpr auto StartFEN             = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-constexpr int  NormalizeToPawnValue = 356;
-constexpr int  MaxHashMB            = Is64Bit ? 33554432 : 2048;
+constexpr auto StartFEN  = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+constexpr int  MaxHashMB = Is64Bit ? 33554432 : 2048;
 
-void UCI::search_clear() {
-    threads.main_thread()->wait_for_search_finished();
-
-    tt.clear(options["Threads"]);
-    threads.clear();
-}
+namespace NN = Eval::NNUE;
 
 UCI::UCI(int argc, char** argv) :
+    networks(NN::Networks(
+      NN::NetworkBig({EvalFileDefaultNameBig, "None", ""}, NN::EmbeddedNNUEType::BIG),
+      NN::NetworkSmall({EvalFileDefaultNameSmall, "None", ""}, NN::EmbeddedNNUEType::SMALL))),
     cli(argc, argv) {
 
-    evalFiles = {{Eval::NNUE::Big, {"EvalFile", EvalFileDefaultNameBig, "None", ""}},
-                 {Eval::NNUE::Small, {"EvalFileSmall", EvalFileDefaultNameSmall, "None", ""}}};
-
-    options["Threads"] << Option(1, 1, MaxThreads, [this](const Option&) {
-        threads.set({options, threads, tt});
+    options["Threads"] << Option(1, 1, 1024, [this](const Option&) {
+        threads.set({options, threads, tt, networks});
     });
 
     options["Hash"] << Option(32, 32, MaxHashMB, [this](const Option& o) {
@@ -10329,14 +10816,21 @@ UCI::UCI(int argc, char** argv) :
     options["Ponder"] << Option(false);
     options["Move Overhead"] << Option(10, 0, 5000);
     options["UCI_Chess960"] << Option(false);
-#if !defined NETEMBED
-    options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option&) {
-        evalFiles = Eval::NNUE::load_networks(cli.binaryDirectory, options, evalFiles); });
-    options["EvalFileSmall"] << Option(EvalFileDefaultNameSmall, [this](const Option&) {
-        evalFiles = Eval::NNUE::load_networks(cli.binaryDirectory, options, evalFiles); });
-#endif
 
-    threads.set({options, threads, tt});
+#if !defined NETEMBED
+    options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option& o) {
+        networks.big.load(cli.binaryDirectory, o);
+    });
+    options["EvalFileSmall"] << Option(EvalFileDefaultNameSmall, [this](const Option& o) {
+        networks.small.load(cli.binaryDirectory, o);
+    });
+#endif
+    networks.big.load(cli.binaryDirectory, options["EvalFile"]);
+    networks.small.load(cli.binaryDirectory, options["EvalFileSmall"]);
+
+    threads.set({options, threads, tt, networks});
+
+    search_clear();  // After threads are up
 }
 
 void UCI::loop() {
@@ -10410,11 +10904,9 @@ void UCI::loop() {
     } while (token != "quit" && cli.argc == 1);  // The command-line arguments are one-shot
 }
 
-void UCI::go(Position& pos, std::istringstream& is, StateListPtr& states) {
-
+Search::LimitsType UCI::parse_limits(const Position& pos, std::istream& is) {
     Search::LimitsType limits;
     std::string        token;
-    bool               ponderMode = false;
 
     limits.startTime = now();  // The search starts as early as possible
 
@@ -10435,12 +10927,18 @@ void UCI::go(Position& pos, std::istringstream& is, StateListPtr& states) {
             is >> limits.movetime;
         else if (token == "infinite")
             limits.infinite = 1;
-        else if (token == "ponder")
-            ponderMode = true;
 
-    Eval::NNUE::verify(options, evalFiles);
+    return limits;
+}
 
-    threads.start_thinking(pos, states, limits, ponderMode);
+void UCI::go(Position& pos, std::istringstream& is, StateListPtr& states) {
+
+    Search::LimitsType limits = parse_limits(pos, is);
+
+    networks.big.verify(options["EvalFile"]);
+    networks.small.verify(options["EvalFileSmall"]);
+
+    threads.start_thinking(options, pos, states, limits);
 }
 
 void UCI::bench(Position& pos, std::istream& args, StateListPtr& states) {
@@ -10485,6 +10983,13 @@ void UCI::bench(Position& pos, std::istream& args, StateListPtr& states) {
               << "\nNodes/second    : " << 1000 * nodes / elapsed << std::endl;
 }
 
+void UCI::search_clear() {
+    threads.main_thread()->wait_for_search_finished();
+
+    tt.clear(options["Threads"]);
+    threads.clear();
+}
+
 void UCI::setoption(std::istringstream& is) {
     threads.main_thread()->wait_for_search_finished();
     options.setoption(is);
@@ -10518,15 +11023,43 @@ void UCI::position(Position& pos, std::istringstream& is, StateListPtr& states) 
     }
 }
 
-int UCI::to_cp(Value v) { return 100 * v / NormalizeToPawnValue; }
+namespace {
+std::pair<double, double> win_rate_params(const Position& pos) {
 
-std::string UCI::value(Value v) {
+    int material = pos.count<PAWN>() + 3 * pos.count<KNIGHT>() + 3 * pos.count<BISHOP>()
+                 + 5 * pos.count<ROOK>() + 9 * pos.count<QUEEN>();
+
+    // The fitted model only uses data for material counts in [10, 78], and is anchored at count 58.
+    double m = std::clamp(material, 10, 78) / 58.0;
+
+    // Return a = p_a(material) and b = p_b(material), see github.com/official-stockfish/WDL_model
+    constexpr double as[] = {-185.71965483, 504.85014385, -438.58295743, 474.04604627};
+    constexpr double bs[] = {89.23542728, -137.02141296, 73.28669021, 47.53376190};
+
+    double a = (((as[0] * m + as[1]) * m + as[2]) * m) + as[3];
+    double b = (((bs[0] * m + bs[1]) * m + bs[2]) * m) + bs[3];
+
+    return {a, b};
+}
+
+// The win rate model is 1 / (1 + exp((a - eval) / b)), where a = p_a(material) and b = p_b(material).
+// It fits the LTC fishtest statistics rather accurately.
+int win_rate_model(Value v, const Position& pos) {
+
+    auto [a, b] = win_rate_params(pos);
+
+    // Return the win rate in per mille units, rounded to the nearest integer.
+    return int(0.5 + 1000 / (1 + std::exp((a - double(v)) / b)));
+}
+}
+
+std::string UCI::to_score(Value v, const Position& pos) {
     assert(-VALUE_INFINITE < v && v < VALUE_INFINITE);
 
     std::stringstream ss;
 
     if (std::abs(v) < VALUE_TB_WIN_IN_MAX_PLY)
-        ss << "cp " << to_cp(v);
+        ss << "cp " << to_cp(v, pos);
     else if (std::abs(v) <= VALUE_TB)
     {
         const int ply = VALUE_TB - std::abs(v);  // recompute ss->ply
@@ -10534,6 +11067,30 @@ std::string UCI::value(Value v) {
     }
     else
         ss << "mate " << (v > 0 ? VALUE_MATE - v + 1 : -VALUE_MATE - v) / 2;
+
+    return ss.str();
+}
+
+// Turns a Value to an integer centipawn number,
+// without treatment of mate and similar special scores.
+int UCI::to_cp(Value v, const Position& pos) {
+
+    // In general, the score can be defined via the the WDL as
+    // (log(1/L - 1) - log(1/W - 1)) / ((log(1/L - 1) + log(1/W - 1))
+    // Based on our win_rate_model, this simply yields v / a.
+
+    auto [a, b] = win_rate_params(pos);
+
+    return std::round(100 * int(v) / a);
+}
+
+std::string UCI::wdl(Value v, const Position& pos) {
+    std::stringstream ss;
+
+    int wdl_w = win_rate_model(v, pos);
+    int wdl_l = win_rate_model(-v, pos);
+    int wdl_d = 1000 - wdl_w - wdl_l;
+    ss << " wdl " << wdl_w << " " << wdl_d << " " << wdl_l;
 
     return ss.str();
 }
@@ -10561,42 +11118,6 @@ std::string UCI::move(Move m, bool chess960) {
         move += " pnbrqk"[m.promotion_type()];
 
     return move;
-}
-
-namespace {
-// The win rate model returns the probability of winning (in per mille units) given an
-// eval and a game ply. It fits the LTC fishtest statistics rather accurately.
-int win_rate_model(Value v, int ply) {
-
-    // The fitted model only uses data for moves in [8, 120], and is anchored at move 32.
-    double m = std::clamp(ply / 2 + 1, 8, 120) / 32.0;
-
-    // The coefficients of a third-order polynomial fit is based on the fishtest data
-    // for two parameters that need to transform eval to the argument of a logistic
-    // function.
-    constexpr double as[] = {-1.06249702, 7.42016937, 0.89425629, 348.60356174};
-    constexpr double bs[] = {-5.33122190, 39.57831533, -90.84473771, 123.40620748};
-
-    // Enforce that NormalizeToPawnValue corresponds to a 50% win rate at move 32.
-    static_assert(NormalizeToPawnValue == int(0.5 + as[0] + as[1] + as[2] + as[3]));
-
-    double a = (((as[0] * m + as[1]) * m + as[2]) * m) + as[3];
-    double b = (((bs[0] * m + bs[1]) * m + bs[2]) * m) + bs[3];
-
-    // Return the win rate in per mille units, rounded to the nearest integer.
-    return int(0.5 + 1000 / (1 + std::exp((a - double(v)) / b)));
-}
-}
-
-std::string UCI::wdl(Value v, int ply) {
-    std::stringstream ss;
-
-    int wdl_w = win_rate_model(v, ply);
-    int wdl_l = win_rate_model(-v, ply);
-    int wdl_d = 1000 - wdl_w - wdl_l;
-    ss << " wdl " << wdl_w << " " << wdl_d << " " << wdl_l;
-
-    return ss.str();
 }
 
 Move UCI::to_move(const Position& pos, std::string& str) {
@@ -10629,283 +11150,70 @@ Move UCI::to_move(const Position& pos, std::string& str) {
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-// Code for calculating NNUE evaluation function
-
+#include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
-#include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <optional>
 #include <sstream>
-#include <string_view>
-#include <type_traits>
-#include <unordered_map>
 
-namespace Stockfish::Eval::NNUE {
+namespace Stockfish {
 
-// Input feature converter
-LargePagePtr<FeatureTransformer<TransformedFeatureDimensionsBig, &StateInfo::accumulatorBig>>
-  featureTransformerBig;
-LargePagePtr<FeatureTransformer<TransformedFeatureDimensionsSmall, &StateInfo::accumulatorSmall>>
-  featureTransformerSmall;
-
-// Evaluation function
-AlignedPtr<Network<TransformedFeatureDimensionsBig, L2Big, L3Big>>       networkBig[LayerStacks];
-AlignedPtr<Network<TransformedFeatureDimensionsSmall, L2Small, L3Small>> networkSmall[LayerStacks];
-
-// Evaluation function file names
-
-namespace Detail {
-
-// Initialize the evaluation function parameters
-template<typename T>
-void initialize(AlignedPtr<T>& pointer) {
-
-    pointer.reset(reinterpret_cast<T*>(std_aligned_alloc(alignof(T), sizeof(T))));
-    std::memset(pointer.get(), 0, sizeof(T));
+// Returns a static, purely materialistic evaluation of the position from
+// the point of view of the given color. It can be divided by PawnValue to get
+// an approximation of the material advantage on the board in terms of pawns.
+int Eval::simple_eval(const Position& pos, Color c) {
+    return PawnValue * (pos.count<PAWN>(c) - pos.count<PAWN>(~c))
+         + (pos.non_pawn_material(c) - pos.non_pawn_material(~c));
 }
 
-template<typename T>
-void initialize(LargePagePtr<T>& pointer) {
+// Evaluate is the evaluator for the outer world. It returns a static evaluation
+// of the position from the point of view of the side to move.
+Value Eval::evaluate(const Eval::NNUE::Networks& networks, const Position& pos, int optimism) {
 
-    static_assert(alignof(T) <= 4096,
-                  "aligned_large_pages_alloc() may fail for such a big alignment requirement of T");
-    pointer.reset(reinterpret_cast<T*>(aligned_large_pages_alloc(sizeof(T))));
-    std::memset(pointer.get(), 0, sizeof(T));
-}
+    assert(!pos.checkers());
 
-// Read evaluation function parameters
-template<typename T>
-bool read_parameters(std::istream& stream, T& reference) {
+    int  simpleEval = simple_eval(pos, pos.side_to_move());
+    bool smallNet   = std::abs(simpleEval) > SmallNetThreshold;
+    bool psqtOnly   = std::abs(simpleEval) > PsqtOnlyThreshold;
+    int  nnueComplexity;
+    int  v;
 
-    std::uint32_t header;
-    header = read_little_endian<std::uint32_t>(stream);
-    if (!stream || header != T::get_hash_value())
-        return false;
-    return reference.read_parameters(stream);
-}
+    Value nnue = smallNet ? networks.small.evaluate(pos, true, &nnueComplexity, psqtOnly)
+                          : networks.big.evaluate(pos, true, &nnueComplexity, false);
 
-// Write evaluation function parameters
-template<typename T>
-bool write_parameters(std::ostream& stream, const T& reference) {
+    const auto adjustEval = [&](int optDiv, int nnueDiv, int pawnCountConstant, int pawnCountMul,
+                                int npmConstant, int evalDiv, int shufflingConstant,
+                                int shufflingDiv) {
+        // Blend optimism and eval with nnue complexity and material imbalance
+        optimism += optimism * (nnueComplexity + std::abs(simpleEval - nnue)) / optDiv;
+        nnue -= nnue * (nnueComplexity + std::abs(simpleEval - nnue)) / nnueDiv;
 
-    write_little_endian<std::uint32_t>(stream, T::get_hash_value());
-    return reference.write_parameters(stream);
-}
+        int npm = pos.non_pawn_material() / 64;
+        v       = (nnue * (npm + pawnCountConstant + pawnCountMul * pos.count<PAWN>())
+             + optimism * (npmConstant + npm))
+          / evalDiv;
 
-}  // namespace Detail
+        // Damp down the evaluation linearly when shuffling
+        int shuffling = pos.rule50_count();
+        v             = v * (shufflingConstant - shuffling) / shufflingDiv;
+    };
 
-// Initialize the evaluation function parameters
-static void initialize(NetSize netSize) {
-
-    if (netSize == Small)
-    {
-        Detail::initialize(featureTransformerSmall);
-        for (std::size_t i = 0; i < LayerStacks; ++i)
-            Detail::initialize(networkSmall[i]);
-    }
+    if (!smallNet)
+        adjustEval(513, 32395, 919, 11, 145, 1036, 178, 204);
+    else if (psqtOnly)
+        adjustEval(517, 32857, 908, 7, 155, 1019, 224, 238);
     else
-    {
-        Detail::initialize(featureTransformerBig);
-        for (std::size_t i = 0; i < LayerStacks; ++i)
-            Detail::initialize(networkBig[i]);
-    }
+        adjustEval(499, 32793, 903, 9, 147, 1067, 208, 211);
+
+    // Guarantee evaluation does not hit the tablebase range
+    v = std::clamp(v, VALUE_TB_LOSS_IN_MAX_PLY + 1, VALUE_TB_WIN_IN_MAX_PLY - 1);
+
+    return v;
 }
 
-// Read network header
-static bool read_header(std::istream& stream, std::uint32_t* hashValue, std::string* desc) {
-    std::uint32_t version, size;
-
-    version    = read_little_endian<std::uint32_t>(stream);
-    *hashValue = read_little_endian<std::uint32_t>(stream);
-    size       = read_little_endian<std::uint32_t>(stream);
-    if (!stream || version != Version)
-        return false;
-    desc->resize(size);
-    stream.read(&(*desc)[0], size);
-    return !stream.fail();
-}
-
-// Write network header
-static bool write_header(std::ostream& stream, std::uint32_t hashValue, const std::string& desc) {
-    write_little_endian<std::uint32_t>(stream, Version);
-    write_little_endian<std::uint32_t>(stream, hashValue);
-    write_little_endian<std::uint32_t>(stream, std::uint32_t(desc.size()));
-    stream.write(&desc[0], desc.size());
-    return !stream.fail();
-}
-
-// Read network parameters
-static bool read_parameters(std::istream& stream, NetSize netSize, std::string& netDescription) {
-
-    std::uint32_t hashValue;
-    if (!read_header(stream, &hashValue, &netDescription))
-        return false;
-    if (hashValue != HashValue[netSize])
-        return false;
-    if (netSize == Big && !Detail::read_parameters(stream, *featureTransformerBig))
-        return false;
-    if (netSize == Small && !Detail::read_parameters(stream, *featureTransformerSmall))
-        return false;
-    for (std::size_t i = 0; i < LayerStacks; ++i)
-    {
-        if (netSize == Big && !Detail::read_parameters(stream, *(networkBig[i])))
-            return false;
-        if (netSize == Small && !Detail::read_parameters(stream, *(networkSmall[i])))
-            return false;
-    }
-    return stream && stream.peek() == std::ios::traits_type::eof();
-}
-
-// Write network parameters
-static bool
-write_parameters(std::ostream& stream, NetSize netSize, const std::string& netDescription) {
-
-    if (!write_header(stream, HashValue[netSize], netDescription))
-        return false;
-    if (netSize == Big && !Detail::write_parameters(stream, *featureTransformerBig))
-        return false;
-    if (netSize == Small && !Detail::write_parameters(stream, *featureTransformerSmall))
-        return false;
-    for (std::size_t i = 0; i < LayerStacks; ++i)
-    {
-        if (netSize == Big && !Detail::write_parameters(stream, *(networkBig[i])))
-            return false;
-        if (netSize == Small && !Detail::write_parameters(stream, *(networkSmall[i])))
-            return false;
-    }
-    return bool(stream);
-}
-
-void hint_common_parent_position(const Position& pos) {
-
-    int simpleEvalAbs = std::abs(simple_eval(pos, pos.side_to_move()));
-    if (simpleEvalAbs > 1050)
-        featureTransformerSmall->hint_common_access(pos, simpleEvalAbs > 2500);
-    else
-        featureTransformerBig->hint_common_access(pos, false);
-}
-
-// Evaluation function. Perform differential calculation.
-template<NetSize Net_Size>
-Value evaluate(const Position& pos, bool adjusted, int* complexity, bool psqtOnly) {
-
-    // We manually align the arrays on the stack because with gcc < 9.3
-    // overaligning stack variables with alignas() doesn't work correctly.
-
-    constexpr uint64_t alignment = CacheLineSize;
-    constexpr int      delta     = 24;
-
-#if defined(ALIGNAS_ON_STACK_VARIABLES_BROKEN)
-    TransformedFeatureType transformedFeaturesUnaligned
-      [FeatureTransformer < Net_Size == Small ? TransformedFeatureDimensionsSmall
-                                              : TransformedFeatureDimensionsBig,
-       nullptr > ::BufferSize + alignment / sizeof(TransformedFeatureType)];
-
-    auto* transformedFeatures = align_ptr_up<alignment>(&transformedFeaturesUnaligned[0]);
-#else
-
-    alignas(alignment) TransformedFeatureType
-      transformedFeatures[FeatureTransformer < Net_Size == Small ? TransformedFeatureDimensionsSmall
-                                                                 : TransformedFeatureDimensionsBig,
-                          nullptr > ::BufferSize];
-#endif
-
-    ASSERT_ALIGNED(transformedFeatures, alignment);
-
-    const int  bucket = (pos.count<ALL_PIECES>() - 1) / 4;
-    const auto psqt =
-      Net_Size == Small
-        ? featureTransformerSmall->transform(pos, transformedFeatures, bucket, psqtOnly)
-        : featureTransformerBig->transform(pos, transformedFeatures, bucket, psqtOnly);
-
-    const auto positional =
-      !psqtOnly ? (Net_Size == Small ? networkSmall[bucket]->propagate(transformedFeatures)
-                                     : networkBig[bucket]->propagate(transformedFeatures))
-                : 0;
-
-    if (complexity)
-        *complexity = !psqtOnly ? std::abs(psqt - positional) / OutputScale : 0;
-
-    // Give more value to positional evaluation when adjusted flag is set
-    if (adjusted)
-        return static_cast<Value>(((1024 - delta) * psqt + (1024 + delta) * positional)
-                                  / (1024 * OutputScale));
-    else
-        return static_cast<Value>((psqt + positional) / OutputScale);
-}
-
-template Value evaluate<Big>(const Position& pos, bool adjusted, int* complexity, bool psqtOnly);
-template Value evaluate<Small>(const Position& pos, bool adjusted, int* complexity, bool psqtOnly);
-
-struct NnueEvalTrace {
-    static_assert(LayerStacks == PSQTBuckets);
-
-    Value       psqt[LayerStacks];
-    Value       positional[LayerStacks];
-    std::size_t correctBucket;
-};
-
-constexpr std::string_view PieceToChar(" PNBRQK  pnbrqk");
-
-// Load eval, from a file stream or a memory stream
-std::optional<std::string> load_eval(std::istream& stream, NetSize netSize) {
-
-    initialize(netSize);
-    std::string netDescription;
-    return read_parameters(stream, netSize, netDescription) ? std::make_optional(netDescription)
-                                                            : std::nullopt;
-}
-
-// Save eval, to a file stream or a memory stream
-bool save_eval(std::ostream&      stream,
-               NetSize            netSize,
-               const std::string& name,
-               const std::string& netDescription) {
-
-    if (name.empty() || name == "None")
-        return false;
-
-    return write_parameters(stream, netSize, netDescription);
-}
-
-// Save eval, to a file given by its name
-bool save_eval(const std::optional<std::string>&                              filename,
-               NetSize                                                        netSize,
-               const std::unordered_map<Eval::NNUE::NetSize, Eval::EvalFile>& evalFiles) {
-
-    std::string actualFilename;
-    std::string msg;
-
-    if (filename.has_value())
-        actualFilename = filename.value();
-    else
-    {
-        if (evalFiles.at(netSize).current
-            != (netSize == Small ? EvalFileDefaultNameSmall : EvalFileDefaultNameBig))
-        {
-            msg = "Failed to export a net. "
-                  "A non-embedded net can only be saved if the filename is specified";
-
-            sync_cout << msg << sync_endl;
-            return false;
-        }
-        actualFilename = (netSize == Small ? EvalFileDefaultNameSmall : EvalFileDefaultNameBig);
-    }
-
-    std::ofstream stream(actualFilename, std::ios_base::binary);
-    bool          saved = save_eval(stream, netSize, evalFiles.at(netSize).current,
-                                    evalFiles.at(netSize).netDescription);
-
-    msg = saved ? "Network saved successfully to " + actualFilename : "Failed to export a net";
-
-    sync_cout << msg << sync_endl;
-    return saved;
-}
-
-}  // namespace Stockfish::Eval::NNUE
+}  // namespace Stockfish
 /*
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
   Copyright (C) 2004-2024 The Stockfish developers (see AUTHORS file)

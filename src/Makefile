@@ -55,12 +55,12 @@ PGOBENCH = $(WINE_PATH) ./$(EXE) bench 64 3 14
 SRCS = main_gen.cpp
 
 HEADERS = benchmark.h bitboard.h evaluate.h misc.h movegen.h movepick.h \
-		nnue/evaluate_nnue.h nnue/features/half_ka_v2_hm.h nnue/layers/affine_transform.h \
+		nnue/nnue_misc.h nnue/features/half_ka_v2_hm.h nnue/layers/affine_transform.h \
 		nnue/layers/affine_transform_sparse_input.h nnue/layers/clipped_relu.h nnue/layers/simd.h \
 		nnue/layers/sqr_clipped_relu.h nnue/nnue_accumulator.h nnue/nnue_architecture.h \
 		nnue/nnue_common.h nnue/nnue_feature_transformer.h position.h \
 		search.h thread.h thread_win32_osx.h timeman.h \
-		tt.h types.h uci.h ucioption.h
+		tt.h types.h uci.h ucioption.h nnue/network.h
 
 OBJS = main_gen.o
 
@@ -382,7 +382,7 @@ ifeq ($(MAKELEVEL),0)
        export ENV_LDFLAGS := $(LDFLAGS)
 endif
 
-CXXFLAGS = $(ENV_CXXFLAGS) -Wall -Wcast-qual -fno-exceptions -std=c++17 $(EXTRACXXFLAGS)
+CXXFLAGS = $(ENV_CXXFLAGS) -Wcast-qual -fno-exceptions -std=c++17 $(EXTRACXXFLAGS)
 DEPENDFLAGS = $(ENV_DEPENDFLAGS) -std=c++17
 LDFLAGS = $(ENV_LDFLAGS) $(EXTRALDFLAGS)
 

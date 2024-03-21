@@ -22,7 +22,6 @@
 #include <deque>
 #include <memory>
 #include <utility>
-#include <array>
 
 #include "misc.h"
 #include "movegen.h"
@@ -59,6 +58,7 @@ Thread::~Thread() {
     stdThread.join();
 }
 
+
 // Wakes up the thread that will start the search
 void Thread::start_searching() {
     mutex.lock();
@@ -88,7 +88,7 @@ void Thread::idle_loop() {
     // just check if running threads are below a threshold, in this case, all this
     // NUMA machinery is not needed.
     if (nthreads > 8)
-        WinProcGroup::bindThisThread(idx);
+        WinProcGroup::bind_this_thread(idx);
 
     while (true)
     {
@@ -106,6 +106,11 @@ void Thread::idle_loop() {
     }
 }
 
+Search::SearchManager* ThreadPool::main_manager() {
+    return static_cast<Search::SearchManager*>(main_thread()->worker.get()->manager.get());
+}
+
+uint64_t ThreadPool::nodes_searched() const { return accumulate(&Search::Worker::nodes); }
 // Creates/destroys threads to match the requested number.
 // Created and launched threads will immediately go to sleep in idle_loop.
 // Upon resizing, threads are recreated to allow for binding if necessary.
@@ -156,15 +161,14 @@ void ThreadPool::clear() {
 
 // Wakes up main thread waiting in idle_loop() and
 // returns immediately. Main thread will wake up other threads and start the search.
-void ThreadPool::start_thinking(Position&          pos,
+void ThreadPool::start_thinking(const OptionsMap&  options,
+                                Position&          pos,
                                 StateListPtr&      states,
-                                Search::LimitsType limits,
-                                bool               ponderMode) {
+                                Search::LimitsType limits) {
 
     main_thread()->wait_for_search_finished();
 
     main_manager()->stopOnPonderhit = stop = abortedSearch = false;
-    main_manager()->ponder                                 = ponderMode;
 
     increaseDepth = true;
 
@@ -193,7 +197,6 @@ void ThreadPool::start_thinking(Position&          pos,
         th->worker->rootMoves                              = rootMoves;
         th->worker->rootPos.set(pos.fen(), pos.is_chess960(), &th->worker->rootState);
         th->worker->rootState = setupStates->back();
-        th->worker->effort    = {};
     }
 
     main_thread()->start_searching();
