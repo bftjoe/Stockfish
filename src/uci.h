@@ -34,6 +34,8 @@ namespace Stockfish {
 constexpr uint8_t MultiPV = 1;
 constexpr uint8_t MaxThreads = 15;
 constexpr bool ShowWDL = false;
+constexpr uint16_t MoveOverhead = 10;
+
 
 class Move;
 enum Square : int;

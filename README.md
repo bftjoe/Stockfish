@@ -11,6 +11,8 @@ This code is alpha status right now, and is intended for experiment/testing only
 * Most reductions/extensions are removed.
 * Increased minimum hash size to 32MB.
 * Uses multi threaded bench for PGO builds
+* MSVC is unsupported. (INCBIN is required)
+* Loading non embedded NNUE nets is not supported.
 
 ## Future plans
 

@@ -64,20 +64,10 @@ UCI::UCI(int argc, char** argv) :
     });
 
     options["Ponder"] << Option(false);
-    options["Move Overhead"] << Option(10, 0, 5000);
     options["UCI_Chess960"] << Option(false);
 
-#if !defined NETEMBED
-    options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option& o) {
-        networks.big.load(cli.binaryDirectory, o);
-    });
-    options["EvalFileSmall"] << Option(EvalFileDefaultNameSmall, [this](const Option& o) {
-        networks.small.load(cli.binaryDirectory, o);
-    });
-#endif
-    networks.big.load(cli.binaryDirectory, options["EvalFile"]);
-    networks.small.load(cli.binaryDirectory, options["EvalFileSmall"]);
-
+    networks.big.load(cli.binaryDirectory, EvalFileDefaultNameBig);
+    networks.small.load(cli.binaryDirectory, EvalFileDefaultNameSmall);
     threads.set({options, threads, tt, networks});
 
     search_clear();  // After threads are up

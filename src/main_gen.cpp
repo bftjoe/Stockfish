@@ -4744,6 +4744,7 @@ namespace Stockfish {
 constexpr uint8_t MultiPV = 1;
 constexpr uint8_t MaxThreads = 15;
 constexpr bool ShowWDL = false;
+constexpr uint16_t MoveOverhead = 10;
 
 class Move;
 enum Square : int;
@@ -7507,6 +7508,7 @@ namespace {
 //     const unsigned int         gEmbeddedNNUESize;    // the size of the embedded file
 // Note that this does not work in Microsoft Visual Studio.
 #if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF)
+#define NETEMBED
 INCBIN(EmbeddedNNUEBig, EvalFileDefaultNameBig);
 INCBIN(EmbeddedNNUESmall, EvalFileDefaultNameSmall);
 #else
@@ -8578,7 +8580,7 @@ void TimeManagement::init(Search::LimitsType& limits,
     if (limits.time[us] == 0)
         return;
 
-    TimePoint moveOverhead = TimePoint(options["Move Overhead"]);
+    TimePoint moveOverhead = TimePoint(MoveOverhead);
 
     // optScale is a percentage of available time to use for the current move.
     // maxScale is a multiplier applied to optimumTime.
@@ -10814,20 +10816,10 @@ UCI::UCI(int argc, char** argv) :
     });
 
     options["Ponder"] << Option(false);
-    options["Move Overhead"] << Option(10, 0, 5000);
     options["UCI_Chess960"] << Option(false);
 
-#if !defined NETEMBED
-    options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option& o) {
-        networks.big.load(cli.binaryDirectory, o);
-    });
-    options["EvalFileSmall"] << Option(EvalFileDefaultNameSmall, [this](const Option& o) {
-        networks.small.load(cli.binaryDirectory, o);
-    });
-#endif
-    networks.big.load(cli.binaryDirectory, options["EvalFile"]);
-    networks.small.load(cli.binaryDirectory, options["EvalFileSmall"]);
-
+    networks.big.load(cli.binaryDirectory, EvalFileDefaultNameBig);
+    networks.small.load(cli.binaryDirectory, EvalFileDefaultNameSmall);
     threads.set({options, threads, tt, networks});
 
     search_clear();  // After threads are up
