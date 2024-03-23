@@ -87,5 +87,4 @@ Value Eval::evaluate(const Eval::NNUE::Networks& networks, const Position& pos, 
 
     return v;
 }
-
 }  // namespace Stockfish

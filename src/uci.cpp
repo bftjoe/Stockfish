@@ -48,6 +48,7 @@ constexpr int  MaxHashMB = Is64Bit ? 33554432 : 2048;
 
 namespace NN = Eval::NNUE;
 
+
 UCI::UCI(int argc, char** argv) :
     networks(NN::Networks(
       NN::NetworkBig({EvalFileDefaultNameBig, "None", ""}, NN::EmbeddedNNUEType::BIG),
@@ -65,7 +66,7 @@ UCI::UCI(int argc, char** argv) :
 
     options["Ponder"] << Option(false);
     options["UCI_Chess960"] << Option(false);
-
+    
     networks.big.load(cli.binaryDirectory, EvalFileDefaultNameBig);
     networks.small.load(cli.binaryDirectory, EvalFileDefaultNameSmall);
     threads.set({options, threads, tt, networks});
@@ -167,17 +168,11 @@ Search::LimitsType UCI::parse_limits(const Position& pos, std::istream& is) {
             is >> limits.movetime;
         else if (token == "infinite")
             limits.infinite = 1;
-
     return limits;
 }
 
 void UCI::go(Position& pos, std::istringstream& is, StateListPtr& states) {
-
     Search::LimitsType limits = parse_limits(pos, is);
-
-    networks.big.verify(options["EvalFile"]);
-    networks.small.verify(options["EvalFileSmall"]);
-
     threads.start_thinking(options, pos, states, limits);
 }
 

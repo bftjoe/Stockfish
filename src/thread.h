@@ -32,6 +32,7 @@
 
 namespace Stockfish {
 
+
 class OptionsMap;
 
 using Value = int;
@@ -78,6 +79,7 @@ class ThreadPool {
                 delete threads.back(), threads.pop_back();
         }
     }
+
     void start_thinking(const OptionsMap&, Position&, StateListPtr&, Search::LimitsType);
     void clear();
     void set(Search::SharedState);

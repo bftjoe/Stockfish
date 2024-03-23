@@ -112,6 +112,5 @@ struct Networks {
     NetworkBig   big;
     NetworkSmall small;
 };
-
-
 }  // namespace Stockfish
+
