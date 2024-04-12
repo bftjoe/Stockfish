@@ -33,7 +33,6 @@
 #include "movepick.h"
 #include "position.h"
 #include "score.h"
-#include "syzygy/tbprobe.h"
 #include "timeman.h"
 #include "types.h"
 
@@ -277,7 +276,7 @@ class Worker {
     LimitsType limits;
 
     size_t                pvIdx, pvLast;
-    std::atomic<uint64_t> nodes, tbHits, bestMoveChanges;
+    std::atomic<uint64_t> nodes, bestMoveChanges;
     int                   selDepth, nmpMinPly;
 
     Value optimism[COLOR_NB];
@@ -295,8 +294,6 @@ class Worker {
 
     // The main thread has a SearchManager, the others have a NullSearchManager
     std::unique_ptr<ISearchManager> manager;
-
-    Tablebases::Config tbConfig;
 
     const OptionsMap&           options;
     ThreadPool&                 threads;

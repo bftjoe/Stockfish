@@ -80,14 +80,13 @@ class ThreadPool {
         }
     }
 
-    void start_thinking(const OptionsMap&, Position&, StateListPtr&, Search::LimitsType);
+    void start_thinking(Position&, StateListPtr&, Search::LimitsType);
     void clear();
     void set(Search::SharedState, const Search::SearchManager::UpdateContext&);
 
     Search::SearchManager* main_manager();
     Thread*                main_thread() const { return threads.front(); }
     uint64_t               nodes_searched() const;
-    uint64_t               tb_hits() const;
     Thread*                get_best_thread() const;
     void                   start_searching();
     void                   wait_for_search_finished() const;

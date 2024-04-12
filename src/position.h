@@ -41,7 +41,6 @@ class TranspositionTable;
 struct StateInfo {
 
     // Copied when making a move
-    Key    materialKey;
     Key    pawnKey;
     Value  nonPawnMaterial[COLOR_NB];
     int    castlingRights;
@@ -294,8 +293,6 @@ inline Key Position::adjust_key50(Key k) const {
 }
 
 inline Key Position::pawn_key() const { return st->pawnKey; }
-
-inline Key Position::material_key() const { return st->materialKey; }
 
 inline Value Position::non_pawn_material(Color c) const { return st->nonPawnMaterial[c]; }
 

@@ -37,7 +37,6 @@
 #include "position.h"
 #include "score.h"
 #include "search.h"
-#include "syzygy/tbprobe.h"
 #include "types.h"
 #include "ucioption.h"
 
@@ -76,14 +75,12 @@ UCIEngine::UCIEngine(int argc, char** argv) :
     options["UCI_LimitStrength"] << Option(false);
     options["UCI_Elo"] << Option(1320, 1320, 3190);
     options["UCI_ShowWDL"] << Option(false);
-    options["SyzygyPath"] << Option("<empty>", [](const Option& o) { Tablebases::init(o); });
-    options["SyzygyProbeDepth"] << Option(1, 1, 100);
-    options["Syzygy50MoveRule"] << Option(true);
-    options["SyzygyProbeLimit"] << Option(7, 0, 7);
-    options["EvalFile"] << Option(EvalFileDefaultNameBig,
-                                  [this](const Option& o) { engine.load_big_network(o); });
-    options["EvalFileSmall"] << Option(EvalFileDefaultNameSmall,
-                                       [this](const Option& o) { engine.load_small_network(o); });
+    options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option& o) {
+        networks.big.load(cli.binaryDirectory, o);
+    });
+    options["EvalFileSmall"] << Option(EvalFileDefaultNameSmall, [this](const Option& o) {
+        networks.small.load(cli.binaryDirectory, o);
+    });
 
 
     engine.set_on_iter([](const auto& i) { on_iter(i); });
@@ -223,7 +220,6 @@ Search::LimitsType UCIEngine::parse_limits(const Position& pos, std::istream& is
 }
 
 void UCIEngine::go(Position& pos, std::istringstream& is) {
-
     Search::LimitsType limits = parse_limits(pos, is);
     engine.go(limits);
 }
