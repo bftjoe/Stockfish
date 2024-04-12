@@ -39,7 +39,6 @@
 #include "perft.h"
 #include "position.h"
 #include "search.h"
-#include "syzygy/tbprobe.h"
 #include "types.h"
 #include "ucioption.h"
 
@@ -79,10 +78,6 @@ UCI::UCI(int argc, char** argv) :
     options["UCI_LimitStrength"] << Option(false);
     options["UCI_Elo"] << Option(1320, 1320, 3190);
     options["UCI_ShowWDL"] << Option(false);
-    options["SyzygyPath"] << Option("<empty>", [](const Option& o) { Tablebases::init(o); });
-    options["SyzygyProbeDepth"] << Option(1, 1, 100);
-    options["Syzygy50MoveRule"] << Option(true);
-    options["SyzygyProbeLimit"] << Option(7, 0, 7);
     options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option& o) {
         networks.big.load(cli.binaryDirectory, o);
     });
@@ -238,7 +233,7 @@ void UCI::go(Position& pos, std::istringstream& is, StateListPtr& states) {
         return;
     }
 
-    threads.start_thinking(options, pos, states, limits);
+    threads.start_thinking(pos, states, limits);
 }
 
 void UCI::bench(Position& pos, std::istream& args, StateListPtr& states) {
@@ -307,7 +302,6 @@ void UCI::search_clear() {
 
     tt.clear(options["Threads"]);
     threads.clear();
-    Tablebases::init(options["SyzygyPath"]);  // Free mapped files
 }
 
 void UCI::setoption(std::istringstream& is) {
