@@ -58,16 +58,14 @@ UCIEngine::UCIEngine(int argc, char** argv) :
     cli(argc, argv) {
 
     auto& options = engine.get_options();
-
-    options["Debug Log File"] << Option("", [](const Option& o) { start_logger(o); });
+    
+    start_logger(DEBUGLOGFILE);
 
     options["Threads"] << Option(1, 1, 1024, [this](const Option&) { engine.resize_threads(); });
 
     options["Hash"] << Option(16, 1, MaxHashMB, [this](const Option& o) { engine.set_tt_size(o); });
 
     options["Ponder"] << Option(false);
-    options["MultiPV"] << Option(1, 1, MAX_MOVES);
-    options["Move Overhead"] << Option(10, 0, 5000);
     options["UCI_Chess960"] << Option(false);
     options["UCI_ShowWDL"] << Option(false);
     options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option& o) {
