@@ -47,7 +47,6 @@ namespace Stockfish {
 constexpr auto StartFEN  = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 constexpr int  MaxHashMB = Is64Bit ? 33554432 : 2048;
 
-
 namespace NN = Eval::NNUE;
 
 
@@ -56,8 +55,8 @@ UCI::UCI(int argc, char** argv) :
       NN::NetworkBig({EvalFileDefaultNameBig, "None", ""}, NN::EmbeddedNNUEType::BIG),
       NN::NetworkSmall({EvalFileDefaultNameSmall, "None", ""}, NN::EmbeddedNNUEType::SMALL))),
     cli(argc, argv) {
-
-    options["Debug Log File"] << Option("", [](const Option& o) { start_logger(o); });
+    
+    start_logger(DEBUGLOGFILE);
 
     options["Threads"] << Option(1, 1, 1024, [this](const Option&) {
         threads.set({options, threads, tt, networks});
@@ -69,8 +68,6 @@ UCI::UCI(int argc, char** argv) :
     });
 
     options["Ponder"] << Option(false);
-    options["MultiPV"] << Option(1, 1, MAX_MOVES);
-    options["Move Overhead"] << Option(10, 0, 5000);
     options["UCI_Chess960"] << Option(false);
     options["UCI_ShowWDL"] << Option(false);
     options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option& o) {

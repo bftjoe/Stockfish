@@ -19,6 +19,10 @@
 #ifndef TYPES_H_INCLUDED
     #define TYPES_H_INCLUDED
 
+constexpr int MULTIPV = 1; // 1 <= MULTIPV <= 218
+constexpr int MOVEOVERHEAD = 10; // 0 to 5000 recommended range
+constexpr auto DEBUGLOGFILE = "";
+
 // When compiling with provided Makefile (e.g. for Linux and OSX), configuration
 // is done automatically. To get started type 'make help'.
 //

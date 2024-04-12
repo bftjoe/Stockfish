@@ -157,7 +157,7 @@ void Search::Worker::start_searching() {
     threads.wait_for_search_finished();
     Worker* bestThread = this;
 
-    if (int(options["MultiPV"]) == 1 && !limits.depth && !limits.mate
+    if (int(MULTIPV) == 1 && !limits.depth && !limits.mate
         && rootMoves[0].pv[0] != Move::none())
         bestThread = threads.get_best_thread()->worker.get();
 
@@ -223,7 +223,7 @@ void Search::Worker::iterative_deepening() {
             mainThread->iterValue.fill(mainThread->bestPreviousScore);
     }
 
-    size_t multiPV = size_t(options["MultiPV"]);
+    size_t multiPV = size_t(MULTIPV);
 
     multiPV = std::min(multiPV, rootMoves.size());
 
@@ -1744,7 +1744,7 @@ std::string SearchManager::pv(const Search::Worker&     worker,
     const auto& pos       = worker.rootPos;
     size_t      pvIdx     = worker.pvIdx;
     TimePoint   time      = tm.elapsed() + 1;
-    size_t      multiPV   = std::min(size_t(worker.options["MultiPV"]), rootMoves.size());
+    size_t      multiPV   = std::min(size_t(MULTIPV), rootMoves.size());
 
     for (size_t i = 0; i < multiPV; ++i)
     {
