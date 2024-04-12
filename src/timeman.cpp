@@ -30,17 +30,11 @@ namespace Stockfish {
 
 TimePoint TimeManagement::optimum() const { return optimumTime; }
 TimePoint TimeManagement::maximum() const { return maximumTime; }
-TimePoint TimeManagement::elapsed(size_t nodes) const {
-    return useNodesTime ? TimePoint(nodes) : now() - startTime;
+TimePoint TimeManagement::elapsed() const {
+    return now() - startTime;
 }
 
 void TimeManagement::clear() {
-    availableNodes = 0;  // When in 'nodes as time' mode
-}
-
-void TimeManagement::advance_nodes_time(std::int64_t nodes) {
-    assert(useNodesTime);
-    availableNodes += nodes;
 }
 
 // Called at the beginning of the search and calculates
@@ -58,28 +52,10 @@ void TimeManagement::init(Search::LimitsType& limits,
         return;
 
     TimePoint moveOverhead = TimePoint(options["Move Overhead"]);
-    TimePoint npmsec       = TimePoint(options["nodestime"]);
 
     // optScale is a percentage of available time to use for the current move.
     // maxScale is a multiplier applied to optimumTime.
     double optScale, maxScale;
-
-    // If we have to play in 'nodes as time' mode, then convert from time
-    // to nodes, and use resulting values in time management formulas.
-    // WARNING: to avoid time losses, the given npmsec (nodes per millisecond)
-    // must be much lower than the real engine speed.
-    if (npmsec)
-    {
-        useNodesTime = true;
-
-        if (!availableNodes)                            // Only once at game start
-            availableNodes = npmsec * limits.time[us];  // Time is in msec
-
-        // Convert from milliseconds to nodes
-        limits.time[us] = TimePoint(availableNodes);
-        limits.inc[us] *= npmsec;
-        limits.npmsec = npmsec;
-    }
 
     // Maximum move horizon of 50 moves
     int mtg = limits.movestogo ? std::min(limits.movestogo, 50) : 50;

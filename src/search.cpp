@@ -82,30 +82,6 @@ int stat_malus(Depth d) { return (d < 4 ? 572 * d - 285 : 1372); }
 // Add a small random component to draw evaluations to avoid 3-fold blindness
 Value value_draw(size_t nodes) { return VALUE_DRAW - 1 + Value(nodes & 0x2); }
 
-// Skill structure is used to implement strength limit. If we have a UCI_Elo,
-// we convert it to an appropriate skill level, anchored to the Stash engine.
-// This method is based on a fit of the Elo results for games played between
-// Stockfish at various skill levels and various versions of the Stash engine.
-// Skill 0 .. 19 now covers CCRL Blitz Elo from 1320 to 3190, approximately
-// Reference: https://github.com/vondele/Stockfish/commit/a08b8d4e9711c2
-struct Skill {
-    Skill(int skill_level, int uci_elo) {
-        if (uci_elo)
-        {
-            double e = double(uci_elo - 1320) / (3190 - 1320);
-            level = std::clamp((((37.2473 * e - 40.8525) * e + 22.2943) * e - 0.311438), 0.0, 19.0);
-        }
-        else
-            level = double(skill_level);
-    }
-    bool enabled() const { return level < 20.0; }
-    bool time_to_pick(Depth depth) const { return depth == 1 + int(level); }
-    Move pick_best(const RootMoves&, size_t multiPV);
-
-    double level;
-    Move   best = Move::none();
-};
-
 Value value_to_tt(Value v, int ply);
 Value value_from_tt(Value v, int ply, int r50c);
 void  update_pv(Move* pv, Move move, const Move* childPv);
@@ -177,18 +153,9 @@ void Search::Worker::start_searching() {
 
     // Wait until all threads have finished
     threads.wait_for_search_finished();
-
-    // When playing in 'nodes as time' mode, subtract the searched nodes from
-    // the available ones before exiting.
-    if (limits.npmsec)
-        main_manager()->tm.advance_nodes_time(limits.inc[rootPos.side_to_move()]
-                                              - threads.nodes_searched());
-
     Worker* bestThread = this;
-    Skill   skill =
-      Skill(options["Skill Level"], options["UCI_LimitStrength"] ? int(options["UCI_Elo"]) : 0);
 
-    if (int(options["MultiPV"]) == 1 && !limits.depth && !limits.mate && !skill.enabled()
+    if (int(options["MultiPV"]) == 1 && !limits.depth && !limits.mate
         && rootMoves[0].pv[0] != Move::none())
         bestThread = threads.get_best_thread()->worker.get();
 
@@ -255,12 +222,6 @@ void Search::Worker::iterative_deepening() {
     }
 
     size_t multiPV = size_t(options["MultiPV"]);
-    Skill skill(options["Skill Level"], options["UCI_LimitStrength"] ? int(options["UCI_Elo"]) : 0);
-
-    // When playing with strength handicap enable MultiPV search that we will
-    // use behind-the-scenes to retrieve a set of possible moves.
-    if (skill.enabled())
-        multiPV = std::max(multiPV, size_t(4));
 
     multiPV = std::min(multiPV, rootMoves.size());
 
@@ -338,7 +299,7 @@ void Search::Worker::iterative_deepening() {
                 // When failing high/low give some update (without cluttering
                 // the UI) before a re-search.
                 if (mainThread && multiPV == 1 && (bestValue <= alpha || bestValue >= beta)
-                    && mainThread->tm.elapsed(threads.nodes_searched()) > 3000)
+                    && mainThread->tm.elapsed() > 3000)
                     main_manager()->pv(*this, threads, tt, rootDepth);
 
                 // In case of failing low/high increase aspiration window and
@@ -370,7 +331,7 @@ void Search::Worker::iterative_deepening() {
 
             if (mainThread
                 && (threads.stop || pvIdx + 1 == multiPV
-                    || mainThread->tm.elapsed(threads.nodes_searched()) > 3000)
+                    || mainThread->tm.elapsed() > 3000)
                 // A thread that aborted search can have mated-in/TB-loss PV and score
                 // that cannot be trusted, i.e. it can be delayed or refuted if we would have
                 // had time to fully search other root-moves. Thus we suppress this output and
@@ -412,10 +373,6 @@ void Search::Worker::iterative_deepening() {
                     && VALUE_MATE + rootMoves[0].score <= 2 * limits.mate)))
             threads.stop = true;
 
-        // If the skill level is enabled and time is up, pick a sub-optimal best move
-        if (skill.enabled() && skill.time_to_pick(rootDepth))
-            skill.pick_best(rootMoves, multiPV);
-
         // Use part of the gained time from a previous stable move for the current move
         for (Thread* th : threads)
         {
@@ -447,12 +404,12 @@ void Search::Worker::iterative_deepening() {
                 totalTime = std::min(500.0, totalTime);
 
             if (completedDepth >= 10 && nodesEffort >= 97
-                && mainThread->tm.elapsed(threads.nodes_searched()) > totalTime * 0.739
+                && mainThread->tm.elapsed() > totalTime * 0.739
                 && !mainThread->ponder)
                 threads.stop = true;
 
             // Stop the search if we have exceeded the totalTime
-            if (mainThread->tm.elapsed(threads.nodes_searched()) > totalTime)
+            if (mainThread->tm.elapsed() > totalTime)
             {
                 // If we are allowed to ponder do not stop the search now but
                 // keep pondering until the GUI sends "ponderhit" or "stop".
@@ -464,7 +421,7 @@ void Search::Worker::iterative_deepening() {
             else
                 threads.increaseDepth =
                   mainThread->ponder
-                  || mainThread->tm.elapsed(threads.nodes_searched()) <= totalTime * 0.506;
+                  || mainThread->tm.elapsed() <= totalTime * 0.506;
         }
 
         mainThread->iterValue[iterIdx] = bestValue;
@@ -475,12 +432,6 @@ void Search::Worker::iterative_deepening() {
         return;
 
     mainThread->previousTimeReduction = timeReduction;
-
-    // If the skill level is enabled, swap the best PV line with the sub-optimal one
-    if (skill.enabled())
-        std::swap(rootMoves[0],
-                  *std::find(rootMoves.begin(), rootMoves.end(),
-                             skill.best ? skill.best : skill.pick_best(rootMoves, multiPV)));
 }
 
 void Search::Worker::clear() {
@@ -874,7 +825,7 @@ moves_loop:  // When in check, search starts here
         ss->moveCount = ++moveCount;
 
         if (rootNode && is_mainthread()
-            && main_manager()->tm.elapsed(threads.nodes_searched()) > 3000)
+            && main_manager()->tm.elapsed() > 3000)
         {
             main_manager()->updates.onIter(
               {depth, UCIEngine::move(move, pos.is_chess960()), moveCount + thisThread->pvIdx});
@@ -1747,38 +1698,6 @@ void update_quiet_stats(
 }
 }
 
-// When playing with strength handicap, choose the best move among a set of RootMoves
-// using a statistical rule dependent on 'level'. Idea by Heinz van Saanen.
-Move Skill::pick_best(const RootMoves& rootMoves, size_t multiPV) {
-    static PRNG rng(now());  // PRNG sequence should be non-deterministic
-
-    // RootMoves are already sorted by score in descending order
-    Value  topScore = rootMoves[0].score;
-    int    delta    = std::min(topScore - rootMoves[multiPV - 1].score, int(PawnValue));
-    int    maxScore = -VALUE_INFINITE;
-    double weakness = 120 - 2 * level;
-
-    // Choose best move. For each move score we add two terms, both dependent on
-    // weakness. One is deterministic and bigger for weaker levels, and one is
-    // random. Then we choose the move with the resulting highest score.
-    for (size_t i = 0; i < multiPV; ++i)
-    {
-        // This is our magic formula
-        int push = (weakness * int(topScore - rootMoves[i].score)
-                    + delta * (rng.rand<unsigned>() % int(weakness)))
-                 / 128;
-
-        if (rootMoves[i].score + push >= maxScore)
-        {
-            maxScore = rootMoves[i].score + push;
-            best     = rootMoves[i].pv[0];
-        }
-    }
-
-    return best;
-}
-
-
 // Used to print debug info and, more importantly,
 // to detect when we are out of available time and thus stop the search.
 void SearchManager::check_time(Search::Worker& worker) {
@@ -1790,7 +1709,7 @@ void SearchManager::check_time(Search::Worker& worker) {
 
     static TimePoint lastInfoTime = now();
 
-    TimePoint elapsed = tm.elapsed(worker.threads.nodes_searched());
+    TimePoint elapsed = tm.elapsed();
     TimePoint tick    = worker.limits.startTime + elapsed;
 
     if (tick - lastInfoTime >= 1000)
@@ -1822,7 +1741,7 @@ void SearchManager::pv(const Search::Worker&     worker,
     const auto& rootMoves = worker.rootMoves;
     const auto& pos       = worker.rootPos;
     size_t      pvIdx     = worker.pvIdx;
-    TimePoint   time      = tm.elapsed(nodes) + 1;
+    TimePoint   time      = tm.elapsed() + 1;
     size_t      multiPV   = std::min(size_t(worker.options["MultiPV"]), rootMoves.size());
 
     for (size_t i = 0; i < multiPV; ++i)
