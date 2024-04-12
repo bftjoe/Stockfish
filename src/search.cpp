@@ -1761,9 +1761,6 @@ void SearchManager::pv(const Search::Worker&     worker,
         for (Move m : rootMoves[i].pv)
             pv += UCIEngine::move(m, pos.is_chess960()) + " ";
 
-        if (ss.rdbuf()->in_avail())  // Not at first line
-            ss << "\n";
-
         // remove last whitespace
         if (!pv.empty())
             pv.pop_back();
@@ -1781,13 +1778,12 @@ void SearchManager::pv(const Search::Worker&     worker,
         info.score    = {v, pos};
         info.wdl      = wdl;
 
-        if (i == pvIdx && !tb && updated)  // tablebase- and previous-scores are exact
+        if (i == pvIdx && updated)  // tablebase- and previous-scores are exact
             info.bound = bound;
 
         info.timeMs   = time;
         info.nodes    = nodes;
         info.nps      = nodes * 1000 / time;
-        info.tbHits   = tbHits;
         info.pv       = pv;
         info.hashfull = tt.hashfull();
 

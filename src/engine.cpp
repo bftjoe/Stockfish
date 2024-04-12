@@ -32,7 +32,6 @@
 #include "perft.h"
 #include "position.h"
 #include "search.h"
-#include "syzygy/tbprobe.h"
 #include "types.h"
 #include "uci.h"
 #include "ucioption.h"
@@ -61,7 +60,7 @@ void Engine::go(const Search::LimitsType& limits) {
         return;
     }
 
-    threads.start_thinking(options, pos, states, limits);
+    threads.start_thinking(pos, states, limits);
 }
 void Engine::stop() { threads.stop = true; }
 
@@ -71,8 +70,6 @@ void Engine::search_clear() {
     tt.clear(options["Threads"]);
     threads.clear();
 
-    // @TODO wont work with multiple instances
-    Tablebases::init(options["SyzygyPath"]);  // Free mapped files
 }
 
 void Engine::set_on_update_no_moves(std::function<void(const Engine::InfoShort&)>&& f) {

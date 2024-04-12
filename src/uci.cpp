@@ -68,12 +68,10 @@ UCIEngine::UCIEngine(int argc, char** argv) :
     options["Ponder"] << Option(false);
     options["UCI_Chess960"] << Option(false);
     options["UCI_ShowWDL"] << Option(false);
-    options["EvalFile"] << Option(EvalFileDefaultNameBig, [this](const Option& o) {
-        networks.big.load(cli.binaryDirectory, o);
-    });
-    options["EvalFileSmall"] << Option(EvalFileDefaultNameSmall, [this](const Option& o) {
-        networks.small.load(cli.binaryDirectory, o);
-    });
+    options["EvalFile"] << Option(EvalFileDefaultNameBig,
+                                  [this](const Option& o) { engine.load_big_network(o); });
+    options["EvalFileSmall"] << Option(EvalFileDefaultNameSmall,
+                                       [this](const Option& o) { engine.load_small_network(o); });
 
 
     engine.set_on_iter([](const auto& i) { on_iter(i); });
