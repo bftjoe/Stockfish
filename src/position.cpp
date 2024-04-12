@@ -79,6 +79,7 @@ std::ostream& operator<<(std::ostream& os, const Position& pos) {
     for (Bitboard b = pos.checkers(); b;)
         os << UCIEngine::square(pop_lsb(b)) << " ";
 
+
     return os;
 }
 

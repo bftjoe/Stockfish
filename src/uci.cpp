@@ -56,7 +56,6 @@ overload(Ts...) -> overload<Ts...>;
 UCIEngine::UCIEngine(int argc, char** argv) :
     engine(argv[0]),
     cli(argc, argv) {
-
     auto& options = engine.get_options();
     
     start_logger(DEBUGLOGFILE);

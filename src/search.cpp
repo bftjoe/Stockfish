@@ -1758,6 +1758,7 @@ void SearchManager::pv(const Search::Worker&     worker,
             v = VALUE_ZERO;
 
         std::string pv;
+
         for (Move m : rootMoves[i].pv)
             pv += UCIEngine::move(m, pos.is_chess960()) + " ";
 
