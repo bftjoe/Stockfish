@@ -110,7 +110,7 @@ struct LimitsType {
 
     // Init explicitly due to broken value-initialization of non POD in MSVC
     LimitsType() {
-        time[WHITE] = time[BLACK] = inc[WHITE] = inc[BLACK] = npmsec = movetime = TimePoint(0);
+        time[WHITE] = time[BLACK] = inc[WHITE] = inc[BLACK] = movetime = TimePoint(0);
         movestogo = depth = mate = perft = infinite = 0;
         nodes                                       = 0;
         ponderMode                                  = false;
@@ -119,7 +119,7 @@ struct LimitsType {
     bool use_time_management() const { return time[WHITE] || time[BLACK]; }
 
     std::vector<Move> searchmoves;
-    TimePoint         time[COLOR_NB], inc[COLOR_NB], npmsec, movetime, startTime;
+    TimePoint         time[COLOR_NB], inc[COLOR_NB], movetime, startTime;
     int               movestogo, depth, mate, perft, infinite;
     uint64_t          nodes;
     bool              ponderMode;
@@ -247,7 +247,7 @@ class Worker {
     size_t thread_idx;
 
     // Reductions lookup table initialized at startup
-    std::array<int, MAX_MOVES> reductions;  // [depth or moveNumber]
+    std::array<int, MAX_PLY> reductions;  // [depth or moveNumber]
 
     // The main thread has a SearchManager, the others have a NullSearchManager
     std::unique_ptr<ISearchManager> manager;
