@@ -55,21 +55,15 @@ UCIEngine::UCIEngine(int argc, char** argv) :
     engine(argv[0]),
     cli(argc, argv) {
     auto& options = engine.get_options();
-    
+    #ifdef ENABLE_DBG
     start_logger(DEBUGLOGFILE);
+    #endif
 
     options["Threads"] << Option(1, 1, 1024, [this](const Option&) { engine.resize_threads(); });
-
     options["Hash"] << Option(16, 1, MaxHashMB, [this](const Option& o) { engine.set_tt_size(o); });
-
     options["Ponder"] << Option(false);
     options["UCI_Chess960"] << Option(false);
     options["UCI_ShowWDL"] << Option(false);
-    options["EvalFile"] << Option(EvalFileDefaultNameBig,
-                                  [this](const Option& o) { engine.load_big_network(o); });
-    options["EvalFileSmall"] << Option(EvalFileDefaultNameSmall,
-                                       [this](const Option& o) { engine.load_small_network(o); });
-
 
     engine.set_on_iter([](const auto& i) { on_iter(i); });
     engine.set_on_update_no_moves([](const auto& i) { on_update_no_moves(i); });
@@ -123,19 +117,17 @@ void UCIEngine::loop() {
             engine.search_clear();
         else if (token == "isready")
             sync_cout << "readyok" << sync_endl;
-
         // Add custom non-UCI commands, mainly for debugging purposes.
         // These commands must not be used during a search!
-        else if (token == "flip")
-            engine.flip();
         else if (token == "bench")
             bench(is);
+#ifdef ENABLE_DBG
+        else if (token == "flip")
+            engine.flip();
         else if (token == "d")
             sync_cout << engine.visualize() << sync_endl;
         else if (token == "eval")
             engine.trace_eval();
-        else if (token == "compiler")
-            sync_cout << compiler_info() << sync_endl;
         else if (token == "export_net")
         {
             std::pair<std::optional<std::string>, std::string> files[2];
@@ -148,6 +140,9 @@ void UCIEngine::loop() {
 
             engine.save_network(files);
         }
+#endif
+        else if (token == "compiler")
+            sync_cout << compiler_info() << sync_endl;
         else if (token == "--help" || token == "help" || token == "--license" || token == "license")
             sync_cout
               << "\nStockfish is a powerful chess engine for playing and analyzing."
@@ -257,9 +252,9 @@ void UCIEngine::bench(std::istream& args) {
     }
 
     elapsed = now() - elapsed + 1;  // Ensure positivity to avoid a 'divide by zero'
-
+#ifdef ENABLE_DBG
     dbg_print();
-
+#endif
     std::cerr << "\n==========================="
               << "\nTotal time (ms) : " << elapsed << "\nNodes searched  : " << nodes
               << "\nNodes/second    : " << 1000 * nodes / elapsed << std::endl;
@@ -429,7 +424,6 @@ void UCIEngine::on_update_full(const Engine::InfoFull& info, bool showWDL) {
 
     ss << "info";
     ss << " depth " << info.depth                 //
-       << " seldepth " << info.selDepth           //
        << " multipv " << info.multiPV             //
        << " score " << format_score(info.score);  //
 
@@ -442,7 +436,6 @@ void UCIEngine::on_update_full(const Engine::InfoFull& info, bool showWDL) {
     ss << " nodes " << info.nodes        //
        << " nps " << info.nps            //
        << " hashfull " << info.hashfull  //
-       << " tbhits " << info.tbHits      //
        << " time " << info.timeMs        //
        << " pv " << info.pv;             //
 

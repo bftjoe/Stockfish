@@ -68,8 +68,6 @@ class Engine {
     void set_on_bestmove(std::function<void(std::string_view, std::string_view)>&&);
 
     // network related
-
-    void verify_networks() const;
     void load_networks();
     void load_big_network(const std::string& file);
     void load_small_network(const std::string& file);

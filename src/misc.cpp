@@ -82,7 +82,7 @@ constexpr std::string_view version = "dev";
 // can toggle the logging of std::cout and std:cin at runtime whilst preserving
 // usual I/O functionality, all without changing a single line of code!
 // Idea from http://groups.google.com/group/comp.lang.c++/msg/1d941c0f26ea0d81
-
+#ifdef ENABLE_DBG
 struct Tie: public std::streambuf {  // MSVC requires split streambuf for cin and cout
 
     Tie(std::streambuf* b, std::streambuf* l) :
@@ -144,6 +144,7 @@ class Logger {
         }
     }
 };
+#endif
 
 }  // namespace
 
@@ -308,7 +309,7 @@ std::string compiler_info() {
     return compiler;
 }
 
-
+#ifdef ENABLE_DBG
 // Debug functions used mainly to collect run-time statistics
 constexpr int MaxDebugSlots = 32;
 
@@ -391,7 +392,7 @@ void dbg_print() {
             std::cerr << "Correl. #" << i << ": Total " << n << " Coefficient " << r << std::endl;
         }
 }
-
+#endif
 
 // Used to serialize access to std::cout
 // to avoid multiple threads writing at the same time.
@@ -408,9 +409,10 @@ std::ostream& operator<<(std::ostream& os, SyncCout sc) {
     return os;
 }
 
-
+#ifdef ENABLE_DBG
 // Trampoline helper to avoid moving Logger to misc.h
 void start_logger(const std::string& fname) { Logger::start(fname); }
+#endif
 
 
 #ifdef NO_PREFETCH

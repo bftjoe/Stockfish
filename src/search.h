@@ -98,9 +98,6 @@ struct RootMove {
     Value             uciScore        = -VALUE_INFINITE;
     bool              scoreLowerbound = false;
     bool              scoreUpperbound = false;
-    int               selDepth        = 0;
-    int               tbRank          = 0;
-    Value             tbScore;
     std::vector<Move> pv;
 };
 
@@ -163,14 +160,12 @@ struct InfoShort {
 };
 
 struct InfoFull: InfoShort {
-    int              selDepth;
     size_t           multiPV;
     std::string_view wdl;
     std::string_view bound;
     size_t           timeMs;
     size_t           nodes;
     size_t           nps;
-    size_t           tbHits;
     std::string_view pv;
     int              hashfull;
 };
@@ -278,7 +273,7 @@ class Worker {
 
     size_t                pvIdx, pvLast;
     std::atomic<uint64_t> nodes, bestMoveChanges;
-    int                   selDepth, nmpMinPly;
+    int                   nmpMinPly;
 
     Value optimism[COLOR_NB];
 
@@ -290,9 +285,11 @@ class Worker {
 
     size_t thread_idx;
 
-    // Reductions lookup table initialized at startup
-    std::array<int, MAX_PLY> reductions;  // [depth or moveNumber]
-
+    // Reductions lookup table initialized at compile time based on 1 thread, it does not vary with threads option
+    constexpr static std::array<int, MAX_PLY> reductions = {0, 0, 13, 22, 27, 32, 36, 39, 41, 44, 46, 48, 50, 51, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64, 64, 65, 66, 67, 67, 68, 69, 69, 70, 71, 71, 72, 72, 73, 73, 74, 74, 75, 75, 76, 76, 77, 77, 77, 78, 78, 79, 79, 79, 80, 80, 81, 81, 81, 82, 82, 82, 83, 83, 83, 84, 84, 84, 84, 85, 85, 85, 86, 86, 86, 86, 87, 87, 87, 88, 88, 88, 88, 88, 89, 89, 89, 89, 90, 90, 90, 90, 91, 91, 91, 91, 91, 92, 92, 92, 92, 92, 93, 93, 93, 93, 93, 94, 94, 94, 94, 94, 95, 95, 95, 95, 95, 95, 96, 96, 96, 96, 96, 96, 97, 97, 97, 97, 97, 97, 98, 98, 98, 98, 98, 98, 98, 99, 99, 99, 99, 99, 99, 99, 100, 100, 100, 100, 100, 100, 100, 101, 101, 101, 101, 101, 101, 101, 101, 102, 102, 102, 102, 102, 102, 102, 102, 103, 103, 103, 103, 103, 103, 103, 103, 104, 104, 104, 104, 104, 104, 104, 104, 104, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 106, 106, 106, 106, 106, 106, 106, 106, 106, 107, 107, 107, 107, 107, 107, 107, 107, 107, 107, 107, 108, 108, 108, 108, 108, 108, 108, 108, 108, 108, 108, 109, 109, 109, 109, 109, 109, 109, 109, 109, 109, 109, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110};
+    //for (size_t i = 1; i < reductions.size(); ++i)
+    //  reductions[i] = int((20.14 + std::log(size_t(options["Threads"])) / 2) * std::log(i));
+    
     // The main thread has a SearchManager, the others have a NullSearchManager
     std::unique_ptr<ISearchManager> manager;
 

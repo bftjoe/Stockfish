@@ -253,12 +253,8 @@ void Search::Worker::iterative_deepening() {
             {
                 pvFirst = pvLast;
                 for (pvLast++; pvLast < rootMoves.size(); pvLast++)
-                    if (rootMoves[pvLast].tbRank != rootMoves[pvFirst].tbRank)
-                        break;
+                  ;
             }
-
-            // Reset UCI info selDepth for each depth and each PV line
-            selDepth = 0;
 
             // Reset aspiration window starting size
             Value avg = rootMoves[pvIdx].averageScore;
@@ -447,8 +443,6 @@ void Search::Worker::clear() {
                 for (auto& h : to)
                     h->fill(-65);
 
-    for (size_t i = 1; i < reductions.size(); ++i)
-        reductions[i] = int((20.14 + std::log(size_t(options["Threads"])) / 2) * std::log(i));
 }
 
 
@@ -504,10 +498,6 @@ Value Search::Worker::search(
     // Check for the available remaining time
     if (is_mainthread())
         main_manager()->check_time(*thisThread);
-
-    // Used to send selDepth info to GUI (selDepth counts from 1, ply from 0)
-    if (PvNode && thisThread->selDepth < ss->ply + 1)
-        thisThread->selDepth = ss->ply + 1;
 
     if (!rootNode)
     {
@@ -1119,7 +1109,6 @@ moves_loop:  // When in check, search starts here
             if (moveCount == 1 || value > alpha)
             {
                 rm.score = rm.uciScore = value;
-                rm.selDepth            = thisThread->selDepth;
                 rm.scoreLowerbound = rm.scoreUpperbound = false;
 
                 if (value >= beta)
@@ -1304,10 +1293,6 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta,
     bestMove           = Move::none();
     ss->inCheck        = pos.checkers();
     moveCount          = 0;
-
-    // Used to send selDepth info to GUI (selDepth counts from 1, ply from 0)
-    if (PvNode && thisThread->selDepth < ss->ply + 1)
-        thisThread->selDepth = ss->ply + 1;
 
     // Step 2. Check for an immediate draw or maximum ply reached
     if (pos.is_draw(ss->ply) || ss->ply >= MAX_PLY)
@@ -1706,17 +1691,16 @@ void SearchManager::check_time(Search::Worker& worker) {
 
     // When using nodes, ensure checking rate is not lower than 0.1% of nodes
     callsCnt = worker.limits.nodes ? std::min(512, int(worker.limits.nodes / 1024)) : 512;
-
-    static TimePoint lastInfoTime = now();
-
     TimePoint elapsed = tm.elapsed();
+#ifdef ENABLE_DBG
+    static TimePoint lastInfoTime = now();
     TimePoint tick    = worker.limits.startTime + elapsed;
-
     if (tick - lastInfoTime >= 1000)
     {
         lastInfoTime = tick;
         dbg_print();
     }
+#endif
 
     // We should not stop pondering until told so by the GUI
     if (ponder)
@@ -1774,7 +1758,6 @@ void SearchManager::pv(const Search::Worker&     worker,
         InfoFull info;
 
         info.depth    = d;
-        info.selDepth = rootMoves[i].selDepth;
         info.multiPV  = i + 1;
         info.score    = {v, pos};
         info.wdl      = wdl;

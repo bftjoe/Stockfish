@@ -54,8 +54,6 @@ Engine::Engine(std::string path) :
 }
 
 void Engine::go(const Search::LimitsType& limits) {
-    verify_networks();
-
     if (limits.perft)
     {
         perft(pos.fen(), limits.perft, options["UCI_Chess960"]);
@@ -122,11 +120,6 @@ void Engine::set_ponderhit(bool b) { threads.main_manager()->ponder = b; }
 
 // network related
 
-void Engine::verify_networks() const {
-    networks.big.verify(options["EvalFile"]);
-    networks.small.verify(options["EvalFileSmall"]);
-}
-
 void Engine::load_networks() {
     networks.big.load(binaryDirectory, options["EvalFile"]);
     networks.small.load(binaryDirectory, options["EvalFileSmall"]);
@@ -149,8 +142,6 @@ void Engine::trace_eval() const {
     StateListPtr trace_states(new std::deque<StateInfo>(1));
     Position     p;
     p.set(pos.fen(), options["UCI_Chess960"], &trace_states->back());
-
-    verify_networks();
 
     sync_cout << "\n" << Eval::trace(p, networks) << sync_endl;
 }

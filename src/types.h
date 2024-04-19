@@ -20,8 +20,9 @@
     #define TYPES_H_INCLUDED
 
 constexpr int MULTIPV = 1; // 1 <= MULTIPV <= 218
-constexpr int MOVEOVERHEAD = 10; // 0 to 5000 recommended range
+constexpr int MOVEOVERHEAD = 10; // milliseconds 0 to 5000 recommended range but higher values supported
 constexpr auto DEBUGLOGFILE = "";
+// #define ENABLE_DBG // uncomment this line to enable debug UCI commands and debug stats collection
 
 // When compiling with provided Makefile (e.g. for Linux and OSX), configuration
 // is done automatically. To get started type 'make help'.
