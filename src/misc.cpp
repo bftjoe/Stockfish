@@ -304,8 +304,13 @@ std::string compiler_info() {
     compiler += "(undefined macro)";
 #endif
 
-    compiler += "\n";
+    compiler += "\n\n";
 
+    compiler += "MultiPV: " + std::to_string(MULTIPV) + "\n"
+              + "Move Overhead: " + std::to_string(MOVEOVERHEAD) + "\n";
+#ifdef ENABLE_DBG
+    compiler += "Debug commands and options enabled\n" + "Debug Log file: " + DEBUGLOGFILE + "\n";
+#endif
     return compiler;
 }
 

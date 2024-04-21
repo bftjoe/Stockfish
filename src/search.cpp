@@ -155,8 +155,7 @@ void Search::Worker::start_searching() {
     threads.wait_for_search_finished();
     Worker* bestThread = this;
 
-    if (int(MULTIPV) == 1 && !limits.depth && !limits.mate
-        && rootMoves[0].pv[0] != Move::none())
+    if (int(MULTIPV) == 1 && !limits.depth && !limits.mate && rootMoves[0].pv[0] != Move::none())
         bestThread = threads.get_best_thread()->worker.get();
 
     main_manager()->bestPreviousScore        = bestThread->rootMoves[0].score;
@@ -253,7 +252,7 @@ void Search::Worker::iterative_deepening() {
             {
                 pvFirst = pvLast;
                 for (pvLast++; pvLast < rootMoves.size(); pvLast++)
-                  ;
+                    ;
             }
 
             // Reset aspiration window starting size
@@ -326,8 +325,7 @@ void Search::Worker::iterative_deepening() {
             std::stable_sort(rootMoves.begin() + pvFirst, rootMoves.begin() + pvIdx + 1);
 
             if (mainThread
-                && (threads.stop || pvIdx + 1 == multiPV
-                    || mainThread->tm.elapsed() > 3000)
+                && (threads.stop || pvIdx + 1 == multiPV || mainThread->tm.elapsed() > 3000)
                 // A thread that aborted search can have mated-in/TB-loss PV and score
                 // that cannot be trusted, i.e. it can be delayed or refuted if we would have
                 // had time to fully search other root-moves. Thus we suppress this output and
@@ -400,8 +398,7 @@ void Search::Worker::iterative_deepening() {
                 totalTime = std::min(500.0, totalTime);
 
             if (completedDepth >= 10 && nodesEffort >= 97
-                && mainThread->tm.elapsed() > totalTime * 0.739
-                && !mainThread->ponder)
+                && mainThread->tm.elapsed() > totalTime * 0.739 && !mainThread->ponder)
                 threads.stop = true;
 
             // Stop the search if we have exceeded the totalTime
@@ -416,8 +413,7 @@ void Search::Worker::iterative_deepening() {
             }
             else
                 threads.increaseDepth =
-                  mainThread->ponder
-                  || mainThread->tm.elapsed() <= totalTime * 0.506;
+                  mainThread->ponder || mainThread->tm.elapsed() <= totalTime * 0.506;
         }
 
         mainThread->iterValue[iterIdx] = bestValue;
@@ -442,7 +438,6 @@ void Search::Worker::clear() {
             for (auto& to : continuationHistory[inCheck][c])
                 for (auto& h : to)
                     h->fill(-65);
-
 }
 
 
@@ -814,8 +809,7 @@ moves_loop:  // When in check, search starts here
 
         ss->moveCount = ++moveCount;
 
-        if (rootNode && is_mainthread()
-            && main_manager()->tm.elapsed() > 3000)
+        if (rootNode && is_mainthread() && main_manager()->tm.elapsed() > 3000)
         {
             main_manager()->updates.onIter(
               {depth, UCIEngine::move(move, pos.is_chess960()), moveCount + thisThread->pvIdx});
@@ -1690,11 +1684,11 @@ void SearchManager::check_time(Search::Worker& worker) {
         return;
 
     // When using nodes, ensure checking rate is not lower than 0.1% of nodes
-    callsCnt = worker.limits.nodes ? std::min(512, int(worker.limits.nodes / 1024)) : 512;
+    callsCnt          = worker.limits.nodes ? std::min(512, int(worker.limits.nodes / 1024)) : 512;
     TimePoint elapsed = tm.elapsed();
 #ifdef ENABLE_DBG
     static TimePoint lastInfoTime = now();
-    TimePoint tick    = worker.limits.startTime + elapsed;
+    TimePoint        tick         = worker.limits.startTime + elapsed;
     if (tick - lastInfoTime >= 1000)
     {
         lastInfoTime = tick;
@@ -1757,10 +1751,10 @@ void SearchManager::pv(const Search::Worker&     worker,
 
         InfoFull info;
 
-        info.depth    = d;
-        info.multiPV  = i + 1;
-        info.score    = {v, pos};
-        info.wdl      = wdl;
+        info.depth   = d;
+        info.multiPV = i + 1;
+        info.score   = {v, pos};
+        info.wdl     = wdl;
 
         if (i == pvIdx && updated)  // tablebase- and previous-scores are exact
             info.bound = bound;

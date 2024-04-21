@@ -69,7 +69,6 @@ void Engine::search_clear() {
 
     tt.clear(options["Threads"]);
     threads.clear();
-
 }
 
 void Engine::set_on_update_no_moves(std::function<void(const Engine::InfoShort&)>&& f) {

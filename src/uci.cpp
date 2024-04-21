@@ -55,9 +55,9 @@ UCIEngine::UCIEngine(int argc, char** argv) :
     engine(argv[0]),
     cli(argc, argv) {
     auto& options = engine.get_options();
-    #ifdef ENABLE_DBG
+#ifdef ENABLE_DBG
     start_logger(DEBUGLOGFILE);
-    #endif
+#endif
 
     options["Threads"] << Option(1, 1, 1024, [this](const Option&) { engine.resize_threads(); });
     options["Hash"] << Option(16, 1, MaxHashMB, [this](const Option& o) { engine.set_tt_size(o); });

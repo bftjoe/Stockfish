@@ -30,12 +30,9 @@ namespace Stockfish {
 
 TimePoint TimeManagement::optimum() const { return optimumTime; }
 TimePoint TimeManagement::maximum() const { return maximumTime; }
-TimePoint TimeManagement::elapsed() const {
-    return now() - startTime;
-}
+TimePoint TimeManagement::elapsed() const { return now() - startTime; }
 
-void TimeManagement::clear() {
-}
+void TimeManagement::clear() {}
 
 // Called at the beginning of the search and calculates
 // the bounds of time allowed for the current game ply. We currently support:

@@ -320,7 +320,7 @@ void Position::set_check_info() const {
 // The function is only used when a new position is set up
 void Position::set_state() const {
 
-    st->key = 0;
+    st->key                    = 0;
     st->pawnKey                = Zobrist::noPawns;
     st->nonPawnMaterial[WHITE] = st->nonPawnMaterial[BLACK] = VALUE_ZERO;
     st->checkersBB = attackers_to(square<KING>(sideToMove)) & pieces(~sideToMove);

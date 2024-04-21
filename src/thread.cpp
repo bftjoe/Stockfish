@@ -169,9 +169,7 @@ void ThreadPool::clear() {
 
 // Wakes up main thread waiting in idle_loop() and
 // returns immediately. Main thread will wake up other threads and start the search.
-void ThreadPool::start_thinking(Position&          pos,
-                                StateListPtr&      states,
-                                Search::LimitsType limits) {
+void ThreadPool::start_thinking(Position& pos, StateListPtr& states, Search::LimitsType limits) {
 
     main_thread()->wait_for_search_finished();
 
@@ -210,8 +208,7 @@ void ThreadPool::start_thinking(Position&          pos,
     for (Thread* th : threads)
     {
         th->worker->limits = limits;
-        th->worker->nodes = th->worker->nmpMinPly =
-          th->worker->bestMoveChanges          = 0;
+        th->worker->nodes = th->worker->nmpMinPly = th->worker->bestMoveChanges = 0;
         th->worker->rootDepth = th->worker->completedDepth = 0;
         th->worker->rootMoves                              = rootMoves;
         th->worker->rootPos.set(pos.fen(), pos.is_chess960(), &th->worker->rootState);

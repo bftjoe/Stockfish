@@ -48,7 +48,7 @@ namespace {
 INCBIN(EmbeddedNNUEBig, EvalFileDefaultNameBig);
 INCBIN(EmbeddedNNUESmall, EvalFileDefaultNameSmall);
 #else
-#error "NNUE Embedding is required"
+    #error "NNUE Embedding is required"
 #endif
 
 struct EmbeddedNNUE {
@@ -120,8 +120,9 @@ bool write_parameters(std::ostream& stream, const T& reference) {
 
 
 template<typename Arch, typename Transformer>
-void Network<Arch, Transformer>::load(const std::string& rootDirectory __attribute__((unused)), std::string evalfilePath __attribute__((unused))) {
-  load_internal();
+void Network<Arch, Transformer>::load(const std::string& rootDirectory __attribute__((unused)),
+                                      std::string        evalfilePath __attribute__((unused))) {
+    load_internal();
 }
 
 
