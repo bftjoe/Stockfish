@@ -263,15 +263,18 @@ void Search::Worker::iterative_deepening() {
             mainThread->iterValue.fill(mainThread->bestPreviousScore);
     }
 
-    size_t multiPV = size_t(options["MultiPV"]);
+    size_t multiPV = 1;
     Skill skill(options["Skill Level"], options["UCI_LimitStrength"] ? int(options["UCI_Elo"]) : 0);
+    if (mainThread)
+    {
+        multiPV = size_t(options["MultiPV"]);
+        // When playing with strength handicap enable MultiPV search that we will
+        // use behind-the-scenes to retrieve a set of possible moves.
+        if (skill.enabled() && multiPV < 4)
+            multiPV = 4;
 
-    // When playing with strength handicap enable MultiPV search that we will
-    // use behind-the-scenes to retrieve a set of possible moves.
-    if (skill.enabled())
-        multiPV = std::max(multiPV, size_t(4));
-
-    multiPV = std::min(multiPV, rootMoves.size());
+        multiPV = std::min(multiPV, rootMoves.size());  
+    }
 
     int searchAgainCounter = 0;
 
