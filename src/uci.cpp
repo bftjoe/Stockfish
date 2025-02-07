@@ -187,7 +187,7 @@ Search::LimitsType UCIEngine::parse_limits(std::istream& is) {
     while (is >> token)
         if (token == "searchmoves")  // Needs to be the last command on the line
             while (is >> token)
-                limits.searchmoves.push_back(to_lower(token));
+            	;
 
         else if (token == "wtime")
             is >> limits.time[WHITE];
