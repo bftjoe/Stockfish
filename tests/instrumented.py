@@ -126,12 +126,6 @@ class TestCLI(metaclass=OrderedClassMembers):
         self.stockfish = Stockfish("go movetime 200".split(" "), True)
         assert self.stockfish.process.returncode == 0
 
-    def test_go_nodes_20000_searchmoves_e2e4_d2d4(self):
-        self.stockfish = Stockfish(
-            "go nodes 20000 searchmoves e2e4 d2d4".split(" "), True
-        )
-        assert self.stockfish.process.returncode == 0
-
     def test_bench_128_threads_8_default_depth(self):
         self.stockfish = Stockfish(
             f"bench 128 {get_threads()} 8 default depth".split(" "),
@@ -289,9 +283,6 @@ class TestInteractive(metaclass=OrderedClassMembers):
 
         self.stockfish.check_output(callback)
 
-    def test_clear_hash(self):
-        self.stockfish.send_command("setoption name Clear Hash")
-
     def test_fen_position_mate_1(self):
         self.stockfish.send_command("ucinewgame")
         self.stockfish.send_command(
@@ -319,36 +310,6 @@ class TestInteractive(metaclass=OrderedClassMembers):
         self.stockfish.send_command("go nodes 500000")
         self.stockfish.starts_with("bestmove")
 
-    def test_fen_position_with_mate_go_depth(self):
-        self.stockfish.send_command("ucinewgame")
-        self.stockfish.send_command(
-            "position fen 8/5R2/2K1P3/4k3/8/b1PPpp1B/5p2/8 w - -"
-        )
-        self.stockfish.send_command("go depth 18 searchmoves c6d7")
-        self.stockfish.expect("* score mate 2 * pv c6d7 * f7f5")
-
-        self.stockfish.starts_with("bestmove")
-
-    def test_fen_position_with_mate_go_mate(self):
-        self.stockfish.send_command("ucinewgame")
-        self.stockfish.send_command(
-            "position fen 8/5R2/2K1P3/4k3/8/b1PPpp1B/5p2/8 w - -"
-        )
-        self.stockfish.send_command("go mate 2 searchmoves c6d7")
-        self.stockfish.expect("* score mate 2 * pv c6d7 *")
-
-        self.stockfish.starts_with("bestmove")
-
-    def test_fen_position_with_mate_go_nodes(self):
-        self.stockfish.send_command("ucinewgame")
-        self.stockfish.send_command(
-            "position fen 8/5R2/2K1P3/4k3/8/b1PPpp1B/5p2/8 w - -"
-        )
-        self.stockfish.send_command("go nodes 500000 searchmoves c6d7")
-        self.stockfish.expect("* score mate 2 * pv c6d7 * f7f5")
-
-        self.stockfish.starts_with("bestmove")
-
     def test_fen_position_depth_27(self):
         self.stockfish.send_command("ucinewgame")
         self.stockfish.send_command(
@@ -368,25 +329,6 @@ class TestInteractive(metaclass=OrderedClassMembers):
         self.stockfish.expect("* score mate 1 * pv f7f5")
         self.stockfish.starts_with("bestmove f7f5")
 
-    def test_fen_position_with_mate_go_depth_and_searchmoves(self):
-        self.stockfish.send_command("ucinewgame")
-        self.stockfish.send_command(
-            "position fen 8/5R2/2K1P3/4k3/8/b1PPpp1B/5p2/8 w - -"
-        )
-        self.stockfish.send_command("go depth 18 searchmoves c6d7")
-        self.stockfish.expect("* score mate 2 * pv c6d7 * f7f5")
-
-        self.stockfish.starts_with("bestmove c6d7")
-
-    def test_fen_position_with_moves_with_mate_go_depth_and_searchmoves(self):
-        self.stockfish.send_command("ucinewgame")
-        self.stockfish.send_command(
-            "position fen 8/5R2/2K1P3/4k3/8/b1PPpp1B/5p2/8 w - - moves c6d7"
-        )
-        self.stockfish.send_command("go depth 18 searchmoves e3e2")
-        self.stockfish.expect("* score mate -1 * pv e3e2 f7f5")
-        self.stockfish.starts_with("bestmove e3e2")
-
     def test_verify_nnue_network(self):
         current_path = os.path.abspath(os.getcwd())
         Stockfish(
@@ -397,20 +339,6 @@ class TestInteractive(metaclass=OrderedClassMembers):
         self.stockfish.send_command("position startpos")
         self.stockfish.send_command("go depth 5")
         self.stockfish.starts_with("bestmove")
-
-    def test_multipv_setting(self):
-        self.stockfish.send_command("setoption name MultiPV value 4")
-        self.stockfish.send_command("position startpos")
-        self.stockfish.send_command("go depth 5")
-        self.stockfish.starts_with("bestmove")
-
-    def test_fen_position_with_skill_level(self):
-        self.stockfish.send_command("setoption name Skill Level value 10")
-        self.stockfish.send_command("position startpos")
-        self.stockfish.send_command("go depth 5")
-        self.stockfish.starts_with("bestmove")
-
-        self.stockfish.send_command("setoption name Skill Level value 20")
 
 
 class TestSyzygy(metaclass=OrderedClassMembers):

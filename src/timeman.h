@@ -44,14 +44,12 @@ class TimeManagement {
 
     TimePoint optimum() const;
     TimePoint maximum() const;
-    template<typename FUNC>
-    TimePoint elapsed(FUNC nodes) const {
-        return useNodesTime ? TimePoint(nodes()) : elapsed_time();
+    TimePoint elapsed() const {
+        return elapsed_time();
     }
     TimePoint elapsed_time() const { return now() - startTime; };
 
     void clear();
-    void advance_nodes_time(std::int64_t nodes);
 
    private:
     TimePoint startTime;
@@ -59,7 +57,6 @@ class TimeManagement {
     TimePoint maximumTime;
 
     std::int64_t availableNodes = -1;     // When in 'nodes as time' mode
-    bool         useNodesTime   = false;  // True if we are in 'nodes as time' mode
 };
 
 }  // namespace Stockfish
