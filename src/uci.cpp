@@ -366,22 +366,6 @@ void UCIEngine::benchmark(std::istream& args) {
     cnt   = 1;
     nodes = 0;
 
-    int           numHashfullReadings = 0;
-    constexpr int hashfullAges[]      = {0, 999};  // Only normal hashfull and touched hash.
-    int           totalHashfull[std::size(hashfullAges)] = {0};
-    int           maxHashfull[std::size(hashfullAges)]   = {0};
-
-    auto updateHashfullReadings = [&]() {
-        numHashfullReadings += 1;
-
-        for (int i = 0; i < static_cast<int>(std::size(hashfullAges)); ++i)
-        {
-            const int hashfull = engine.get_hashfull(hashfullAges[i]);
-            maxHashfull[i]     = std::max(maxHashfull[i], hashfull);
-            totalHashfull[i] += hashfull;
-        }
-    };
-
     engine.search_clear();  // search_clear may take a while
 
     for (const auto& cmd : setup.commands)
@@ -404,8 +388,6 @@ void UCIEngine::benchmark(std::istream& args) {
 
             totalTime += now() - elapsed;
 
-            updateHashfullReadings();
-
             nodes += nodesSearched;
             nodesSearched = 0;
         }
@@ -422,10 +404,6 @@ void UCIEngine::benchmark(std::istream& args) {
     dbg_print();
 
     std::cerr << "\n";
-
-    static_assert(
-      std::size(hashfullAges) == 2 && hashfullAges[0] == 0 && hashfullAges[1] == 999,
-      "Hardcoded for display. Would complicate the code needlessly in the current state.");
 
     std::string threadBinding = engine.thread_binding_information_as_string();
     if (threadBinding.empty())
@@ -446,11 +424,6 @@ void UCIEngine::benchmark(std::istream& args) {
               << "\nThread count               : " << setup.threads
               << "\nThread binding             : " << threadBinding
               << "\nTT size [MiB]              : " << setup.ttSize
-              << "\nHash max, avg [per mille]  : "
-              << "\n    single search          : " << maxHashfull[0] << ", "
-              << totalHashfull[0] / numHashfullReadings
-              << "\n    single game            : " << maxHashfull[1] << ", "
-              << totalHashfull[1] / numHashfullReadings
               << "\nTotal nodes searched       : " << nodes
               << "\nTotal search time [s]      : " << totalTime / 1000.0
               << "\nNodes/second               : " << 1000 * nodes / totalTime << std::endl;
@@ -638,7 +611,6 @@ void UCIEngine::on_update_full(const Engine::InfoFull& info, bool showWDL) {
 
     ss << " nodes " << info.nodes        //
        << " nps " << info.nps            //
-       << " hashfull " << info.hashfull  //
        << " tbhits " << info.tbHits      //
        << " time " << info.timeMs        //
        << " pv " << info.pv;             //

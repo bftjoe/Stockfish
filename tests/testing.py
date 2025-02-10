@@ -52,7 +52,6 @@ class TSAN:
 race:Stockfish::TTEntry::read
 race:Stockfish::TTEntry::save
 race:Stockfish::TranspositionTable::probe
-race:Stockfish::TranspositionTable::hashfull
 """
             )
 

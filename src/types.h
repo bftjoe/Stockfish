@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TYPES_H_INCLUDED
-    #define TYPES_H_INCLUDED
+#pragma once
 
 // When compiling with provided Makefile (e.g. for Linux and OSX), configuration
 // is done automatically. To get started type 'make help'.
@@ -433,6 +432,5 @@ class Move {
 
 }  // namespace Stockfish
 
-#endif  // #ifndef TYPES_H_INCLUDED
 
 #include "tune.h"  // Global visibility to tuning setup

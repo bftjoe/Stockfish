@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef SEARCH_H_INCLUDED
-#define SEARCH_H_INCLUDED
+#pragma once
 
 #include <algorithm>
 #include <array>
@@ -173,7 +172,6 @@ struct InfoFull: InfoShort {
     size_t           nps;
     size_t           tbHits;
     std::string_view pv;
-    int              hashfull;
 };
 
 struct InfoIteration {
@@ -206,7 +204,6 @@ class SearchManager: public ISearchManager {
 
     void pv(Search::Worker&           worker,
             const ThreadPool&         threads,
-            const TranspositionTable& tt,
             Depth                     depth);
 
     Stockfish::TimeManagement tm;
@@ -334,4 +331,3 @@ struct ConthistBonus {
 
 }  // namespace Stockfish
 
-#endif  // #ifndef SEARCH_H_INCLUDED

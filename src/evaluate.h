@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef EVALUATE_H_INCLUDED
-#define EVALUATE_H_INCLUDED
+#pragma once
 
 #include <string>
 
@@ -53,4 +52,3 @@ Value evaluate(const NNUE::Networks&          networks,
 
 }  // namespace Stockfish
 
-#endif  // #ifndef EVALUATE_H_INCLUDED

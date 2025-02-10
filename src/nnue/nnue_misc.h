@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef NNUE_MISC_H_INCLUDED
-#define NNUE_MISC_H_INCLUDED
+#pragma once
 
 #include <cstddef>
 #include <string>
@@ -61,4 +60,3 @@ void        hint_common_parent_position(const Position&    pos,
 }  // namespace Stockfish::Eval::NNUE
 }  // namespace Stockfish
 
-#endif  // #ifndef NNUE_MISC_H_INCLUDED

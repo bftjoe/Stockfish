@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef ENGINE_H_INCLUDED
-#define ENGINE_H_INCLUDED
+#pragma once
 
 #include <cstddef>
 #include <cstdint>
@@ -96,8 +95,6 @@ class Engine {
     const OptionsMap& get_options() const;
     OptionsMap&       get_options();
 
-    int get_hashfull(int maxAge = 0) const;
-
     std::string                            fen() const;
     void                                   flip();
     std::string                            visualize() const;
@@ -127,4 +124,3 @@ class Engine {
 }  // namespace Stockfish
 
 
-#endif  // #ifndef ENGINE_H_INCLUDED
