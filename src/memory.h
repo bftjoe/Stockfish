@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef MEMORY_H_INCLUDED
-#define MEMORY_H_INCLUDED
+#pragma once
 
 #include <algorithm>
 #include <cstddef>
@@ -215,4 +214,3 @@ T* align_ptr_up(T* ptr) {
 
 }  // namespace Stockfish
 
-#endif  // #ifndef MEMORY_H_INCLUDED

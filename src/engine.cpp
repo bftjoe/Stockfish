@@ -289,8 +289,6 @@ std::string Engine::visualize() const {
     return ss.str();
 }
 
-int Engine::get_hashfull(int maxAge) const { return tt.hashfull(maxAge); }
-
 std::vector<std::pair<size_t, size_t>> Engine::get_bound_thread_count_by_numa_node() const {
     auto                                   counts = threads.get_bound_thread_count_by_numa_node();
     const NumaConfig&                      cfg    = numaContext.get_numa_config();
