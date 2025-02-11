@@ -599,7 +599,6 @@ void UCIEngine::on_update_full(const Engine::InfoFull& info, bool showWDL) {
 
     ss << "info";
     ss << " depth " << info.depth                 //
-       << " seldepth " << info.selDepth           //
        << " multipv " << info.multiPV             //
        << " score " << format_score(info.score);  //
 

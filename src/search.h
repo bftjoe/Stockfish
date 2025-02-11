@@ -99,7 +99,6 @@ struct RootMove {
     Value             uciScore         = -VALUE_INFINITE;
     bool              scoreLowerbound  = false;
     bool              scoreUpperbound  = false;
-    int               selDepth         = 0;
     std::vector<Move> pv;
 };
 
@@ -160,7 +159,6 @@ struct InfoShort {
 };
 
 struct InfoFull: InfoShort {
-    int              selDepth;
     size_t           multiPV;
     std::string_view wdl;
     std::string_view bound;
@@ -283,8 +281,8 @@ class Worker {
     LimitsType limits;
 
     size_t                pvIdx, pvLast;
-    std::atomic<uint64_t> nodes, tbHits, bestMoveChanges;
-    int                   selDepth, nmpMinPly;
+    std::atomic<uint64_t> nodes, bestMoveChanges;
+    int                   nmpMinPly;
 
     Value optimism[COLOR_NB];
 
