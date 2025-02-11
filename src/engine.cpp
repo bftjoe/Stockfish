@@ -58,13 +58,6 @@ Engine::Engine(std::optional<std::string> path) :
         NN::NetworkSmall({EvalFileDefaultNameSmall, "None", ""}, NN::EmbeddedNNUEType::SMALL))) {
     pos.set(StartFEN, false, &states->back());
 
-
-    options.add(  //
-      "Debug Log File", Option("", [](const Option& o) {
-          start_logger(o);
-          return std::nullopt;
-      }));
-
     options.add(  //
       "NumaPolicy", Option("auto", [this](const Option& o) {
           set_numa_config_from_option(o);

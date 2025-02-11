@@ -35,7 +35,6 @@
 namespace Stockfish {
 
 
-class OptionsMap;
 using Value = int;
 
 // Sometimes we don't want to actually bind the threads, but the recipient still

@@ -34,7 +34,6 @@
 #include "bitboard.h"
 #include "misc.h"
 #include "movegen.h"
-#include "nnue/nnue_common.h"
 #include "tt.h"
 #include "uci.h"
 

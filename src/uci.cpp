@@ -22,11 +22,9 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
-#include <iterator>
 #include <optional>
 #include <sstream>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 #include "benchmark.h"
@@ -135,33 +133,12 @@ void UCIEngine::loop() {
             engine.search_clear();
         else if (token == "isready")
             sync_cout << "readyok" << sync_endl;
-
-        // Add custom non-UCI commands, mainly for debugging purposes.
-        // These commands must not be used during a search!
-        else if (token == "flip")
-            engine.flip();
         else if (token == "bench")
             bench(is);
         else if (token == BenchmarkCommand)
             benchmark(is);
-        else if (token == "d")
-            sync_cout << engine.visualize() << sync_endl;
-        else if (token == "eval")
-            engine.trace_eval();
         else if (token == "compiler")
             sync_cout << compiler_info() << sync_endl;
-        else if (token == "export_net")
-        {
-            std::pair<std::optional<std::string>, std::string> files[2];
-
-            if (is >> std::skipws >> files[0].second)
-                files[0].first = files[0].second;
-
-            if (is >> std::skipws >> files[1].second)
-                files[1].first = files[1].second;
-
-            engine.save_network(files);
-        }
         else if (token == "--help" || token == "help" || token == "--license" || token == "license")
             sync_cout
               << "\nStockfish is a powerful chess engine for playing and analyzing."
@@ -285,8 +262,6 @@ void UCIEngine::bench(std::istream& args) {
 
     elapsed = now() - elapsed + 1;  // Ensure positivity to avoid a 'divide by zero'
 
-    dbg_print();
-
     std::cerr << "\n==========================="    //
               << "\nTotal time (ms) : " << elapsed  //
               << "\nNodes searched  : " << nodes    //
@@ -400,8 +375,6 @@ void UCIEngine::benchmark(std::istream& args) {
     }
 
     totalTime = std::max<TimePoint>(totalTime, 1);  // Ensure positivity to avoid a 'divide by zero'
-
-    dbg_print();
 
     std::cerr << "\n";
 

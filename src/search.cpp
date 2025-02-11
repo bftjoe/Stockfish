@@ -22,14 +22,10 @@
 #include <array>
 #include <atomic>
 #include <cassert>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <initializer_list>
-#include <iostream>
-#include <list>
-#include <ratio>
 #include <string>
 #include <utility>
 
@@ -1811,16 +1807,7 @@ void SearchManager::check_time(Search::Worker& worker) {
     // When using nodes, ensure checking rate is not lower than 0.1% of nodes
     callsCnt = worker.limits.nodes ? std::min(512, int(worker.limits.nodes / 1024)) : 512;
 
-    static TimePoint lastInfoTime = now();
-
     TimePoint elapsed = tm.elapsed();
-    TimePoint tick    = worker.limits.startTime + elapsed;
-
-    if (tick - lastInfoTime >= 1000)
-    {
-        lastInfoTime = tick;
-        dbg_print();
-    }
 
     // We should not stop pondering until told so by the GUI
     if (ponder)

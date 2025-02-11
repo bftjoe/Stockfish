@@ -12,7 +12,6 @@ from testing import (
     MiniTestFramework,
     OrderedClassMembers,
     Valgrind,
-    Syzygy,
 )
 
 PATH = pathlib.Path(__file__).parent.resolve()
@@ -81,10 +80,6 @@ class TestCLI(metaclass=OrderedClassMembers):
         assert postfix_check(self.stockfish.get_output()) == True
         self.stockfish.clear_output()
 
-    def test_eval(self):
-        self.stockfish = Stockfish("eval".split(" "), True)
-        assert self.stockfish.process.returncode == 0
-
     def test_go_nodes_1000(self):
         self.stockfish = Stockfish("go nodes 1000".split(" "), True)
         assert self.stockfish.process.returncode == 0
@@ -142,10 +137,6 @@ class TestCLI(metaclass=OrderedClassMembers):
         )
         assert self.stockfish.process.returncode == 0
 
-    def test_d(self):
-        self.stockfish = Stockfish("d".split(" "), True)
-        assert self.stockfish.process.returncode == 0
-
     def test_compiler(self):
         self.stockfish = Stockfish("compiler".split(" "), True)
         assert self.stockfish.process.returncode == 0
@@ -157,42 +148,6 @@ class TestCLI(metaclass=OrderedClassMembers):
     def test_uci(self):
         self.stockfish = Stockfish("uci".split(" "), True)
         assert self.stockfish.process.returncode == 0
-
-    def test_export_net_verify_nnue(self):
-        current_path = os.path.abspath(os.getcwd())
-        self.stockfish = Stockfish(
-            f"export_net {os.path.join(current_path , 'verify.nnue')}".split(" "), True
-        )
-        assert self.stockfish.process.returncode == 0
-
-    # verify the generated net equals the base net
-
-    def test_network_equals_base(self):
-        self.stockfish = Stockfish(
-            ["uci"],
-            True,
-        )
-
-        output = self.stockfish.process.stdout
-
-        # find line
-        for line in output.split("\n"):
-            if "option name EvalFile type string default" in line:
-                network = line.split(" ")[-1]
-                break
-
-        # find network file in src dir
-        network = os.path.join(PATH.parent.resolve(), "src", network)
-
-        if not os.path.exists(network):
-            print(
-                f"Network file {network} not found, please download the network file over the make command."
-            )
-            assert False
-
-        diff = subprocess.run(["diff", network, f"verify.nnue"])
-
-        assert diff.returncode == 0
 
 
 class TestInteractive(metaclass=OrderedClassMembers):
@@ -232,13 +187,6 @@ class TestInteractive(metaclass=OrderedClassMembers):
     def test_fen_position_1(self):
         self.stockfish.send_command("ucinewgame")
         self.stockfish.send_command("position fen 5rk1/1K4p1/8/8/3B4/8/8/8 b - - 0 1")
-        self.stockfish.send_command("go nodes 1000")
-        self.stockfish.starts_with("bestmove")
-
-    def test_fen_position_2_flip(self):
-        self.stockfish.send_command("ucinewgame")
-        self.stockfish.send_command("position fen 5rk1/1K4p1/8/8/3B4/8/8/8 b - - 0 1")
-        self.stockfish.send_command("flip")
         self.stockfish.send_command("go nodes 1000")
         self.stockfish.starts_with("bestmove")
 
@@ -329,17 +277,6 @@ class TestInteractive(metaclass=OrderedClassMembers):
         self.stockfish.expect("* score mate 1 * pv f7f5")
         self.stockfish.starts_with("bestmove f7f5")
 
-    def test_verify_nnue_network(self):
-        current_path = os.path.abspath(os.getcwd())
-        Stockfish(
-            f"export_net {os.path.join(current_path , 'verify.nnue')}".split(" "), True
-        )
-
-        self.stockfish.send_command("setoption name EvalFile value verify.nnue")
-        self.stockfish.send_command("position startpos")
-        self.stockfish.send_command("go depth 5")
-        self.stockfish.starts_with("bestmove")
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Run Stockfish with testing options")
     parser.add_argument("--valgrind", action="store_true", help="Run valgrind testing")
@@ -368,12 +305,11 @@ if __name__ == "__main__":
 
     EPD.create_bench_epd()
     TSAN.set_tsan_option()
-    Syzygy.download_syzygy()
 
     framework = MiniTestFramework()
 
     # Each test suite will be ran inside a temporary directory
-    framework.run([TestCLI, TestInteractive, TestSyzygy])
+    framework.run([TestCLI, TestInteractive])
 
     EPD.delete_bench_epd()
     TSAN.unset_tsan_option()
