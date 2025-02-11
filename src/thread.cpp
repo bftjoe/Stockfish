@@ -130,7 +130,6 @@ void Thread::idle_loop() {
 Search::SearchManager* ThreadPool::main_manager() { return main_thread()->worker->main_manager(); }
 
 uint64_t ThreadPool::nodes_searched() const { return accumulate(&Search::Worker::nodes); }
-uint64_t ThreadPool::tb_hits() const { return accumulate(&Search::Worker::tbHits); }
 
 // Creates/destroys threads to match the requested number.
 // Created and launched threads will immediately go to sleep in idle_loop.
@@ -269,8 +268,7 @@ void ThreadPool::start_thinking(Position&          pos,
     {
         th->run_custom_job([&]() {
             th->worker->limits = limits;
-            th->worker->nodes = th->worker->tbHits = th->worker->nmpMinPly =
-              th->worker->bestMoveChanges          = 0;
+            th->worker->nodes = th->worker->nmpMinPly = th->worker->bestMoveChanges = 0;
             th->worker->rootDepth = th->worker->completedDepth = 0;
             th->worker->rootMoves                              = rootMoves;
             th->worker->rootPos.set(pos.fen(), pos.is_chess960(), &th->worker->rootState);
