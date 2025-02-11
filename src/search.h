@@ -37,7 +37,6 @@
 #include "numa.h"
 #include "position.h"
 #include "score.h"
-#include "syzygy/tbprobe.h"
 #include "timeman.h"
 #include "types.h"
 
@@ -101,8 +100,6 @@ struct RootMove {
     bool              scoreLowerbound  = false;
     bool              scoreUpperbound  = false;
     int               selDepth         = 0;
-    int               tbRank           = 0;
-    Value             tbScore;
     std::vector<Move> pv;
 };
 
@@ -170,7 +167,6 @@ struct InfoFull: InfoShort {
     size_t           timeMs;
     size_t           nodes;
     size_t           nps;
-    size_t           tbHits;
     std::string_view pv;
 };
 
@@ -306,8 +302,6 @@ class Worker {
 
     // The main thread has a SearchManager, the others have a NullSearchManager
     std::unique_ptr<ISearchManager> manager;
-
-    Tablebases::Config tbConfig;
 
     const OptionsMap&                               options;
     ThreadPool&                                     threads;

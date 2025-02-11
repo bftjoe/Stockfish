@@ -248,7 +248,7 @@ class TestInteractive(metaclass=OrderedClassMembers):
         self.stockfish.send_command("go depth 5")
 
         def callback(output):
-            regex = r"info depth \d+ seldepth \d+ multipv \d+ score cp \d+ nodes \d+ nps \d+ tbhits \d+ time \d+ pv"
+            regex = r"info depth \d+ seldepth \d+ multipv \d+ score cp \d+ nodes \d+ nps \d+ time \d+ pv"
             if output.startswith("info depth") and not re.match(regex, output):
                 assert False
             if output.startswith("bestmove"):
@@ -268,7 +268,7 @@ class TestInteractive(metaclass=OrderedClassMembers):
         def callback(output):
             nonlocal depth
 
-            regex = rf"info depth {depth} seldepth \d+ multipv \d+ score cp \d+ wdl \d+ \d+ \d+ nodes \d+ nps \d+ tbhits \d+ time \d+ pv"
+            regex = rf"info depth {depth} seldepth \d+ multipv \d+ score cp \d+ wdl \d+ \d+ \d+ nodes \d+ nps \d+ time \d+ pv"
 
             if output.startswith("info depth"):
                 if not re.match(regex, output):
@@ -339,70 +339,6 @@ class TestInteractive(metaclass=OrderedClassMembers):
         self.stockfish.send_command("position startpos")
         self.stockfish.send_command("go depth 5")
         self.stockfish.starts_with("bestmove")
-
-
-class TestSyzygy(metaclass=OrderedClassMembers):
-    def beforeAll(self):
-        self.stockfish = Stockfish()
-
-    def afterAll(self):
-        self.stockfish.quit()
-        assert self.stockfish.close() == 0
-
-    def afterEach(self):
-        assert postfix_check(self.stockfish.get_output()) == True
-        self.stockfish.clear_output()
-
-    def test_syzygy_setup(self):
-        self.stockfish.starts_with("Stockfish")
-        self.stockfish.send_command("uci")
-        self.stockfish.send_command(
-            f"setoption name SyzygyPath value {os.path.join(PATH, 'syzygy')}"
-        )
-        self.stockfish.expect(
-            "info string Found 35 WDL and 35 DTZ tablebase files (up to 4-man)."
-        )
-
-    def test_syzygy_bench(self):
-        self.stockfish.send_command("bench 128 1 8 default depth")
-        self.stockfish.expect("Nodes searched  :*")
-
-    def test_syzygy_position(self):
-        self.stockfish.send_command("ucinewgame")
-        self.stockfish.send_command("position fen 4k3/PP6/8/8/8/8/8/4K3 w - - 0 1")
-        self.stockfish.send_command("go depth 5")
-
-        def check_output(output):
-            if "score cp 20000" in output or "score mate" in output:
-                return True
-
-        self.stockfish.check_output(check_output)
-        self.stockfish.expect("bestmove *")
-
-    def test_syzygy_position_2(self):
-        self.stockfish.send_command("ucinewgame")
-        self.stockfish.send_command("position fen 8/1P6/2B5/8/4K3/8/6k1/8 w - - 0 1")
-        self.stockfish.send_command("go depth 5")
-
-        def check_output(output):
-            if "score cp 20000" in output or "score mate" in output:
-                return True
-
-        self.stockfish.check_output(check_output)
-        self.stockfish.expect("bestmove *")
-
-    def test_syzygy_position_3(self):
-        self.stockfish.send_command("ucinewgame")
-        self.stockfish.send_command("position fen 8/1P6/2B5/8/4K3/8/6k1/8 b - - 0 1")
-        self.stockfish.send_command("go depth 5")
-
-        def check_output(output):
-            if "score cp -20000" in output or "score mate" in output:
-                return True
-
-        self.stockfish.check_output(check_output)
-        self.stockfish.expect("bestmove *")
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run Stockfish with testing options")
