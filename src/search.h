@@ -16,10 +16,8 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef SEARCH_H_INCLUDED
-#define SEARCH_H_INCLUDED
+#pragma once
 
-#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cassert>
@@ -27,7 +25,6 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <string>
 #include <string_view>
 #include <vector>
 
@@ -38,7 +35,6 @@
 #include "numa.h"
 #include "position.h"
 #include "score.h"
-#include "syzygy/tbprobe.h"
 #include "timeman.h"
 #include "types.h"
 
@@ -101,9 +97,6 @@ struct RootMove {
     Value             uciScore         = -VALUE_INFINITE;
     bool              scoreLowerbound  = false;
     bool              scoreUpperbound  = false;
-    int               selDepth         = 0;
-    int               tbRank           = 0;
-    Value             tbScore;
     std::vector<Move> pv;
 };
 
@@ -115,7 +108,7 @@ struct LimitsType {
 
     // Init explicitly due to broken value-initialization of non POD in MSVC
     LimitsType() {
-        time[WHITE] = time[BLACK] = inc[WHITE] = inc[BLACK] = npmsec = movetime = TimePoint(0);
+        time[WHITE] = time[BLACK] = inc[WHITE] = inc[BLACK] = movetime = TimePoint(0);
         movestogo = depth = mate = perft = infinite = 0;
         nodes                                       = 0;
         ponderMode                                  = false;
@@ -123,8 +116,7 @@ struct LimitsType {
 
     bool use_time_management() const { return time[WHITE] || time[BLACK]; }
 
-    std::vector<std::string> searchmoves;
-    TimePoint                time[COLOR_NB], inc[COLOR_NB], npmsec, movetime, startTime;
+    TimePoint                time[COLOR_NB], inc[COLOR_NB], movetime, startTime;
     int                      movestogo, depth, mate, perft, infinite;
     uint64_t                 nodes;
     bool                     ponderMode;
@@ -165,50 +157,19 @@ struct InfoShort {
 };
 
 struct InfoFull: InfoShort {
-    int              selDepth;
     size_t           multiPV;
     std::string_view wdl;
     std::string_view bound;
     size_t           timeMs;
     size_t           nodes;
     size_t           nps;
-    size_t           tbHits;
     std::string_view pv;
-    int              hashfull;
 };
 
 struct InfoIteration {
     int              depth;
     std::string_view currmove;
     size_t           currmovenumber;
-};
-
-// Skill structure is used to implement strength limit. If we have a UCI_Elo,
-// we convert it to an appropriate skill level, anchored to the Stash engine.
-// This method is based on a fit of the Elo results for games played between
-// Stockfish at various skill levels and various versions of the Stash engine.
-// Skill 0 .. 19 now covers CCRL Blitz Elo from 1320 to 3190, approximately
-// Reference: https://github.com/vondele/Stockfish/commit/a08b8d4e9711c2
-struct Skill {
-    // Lowest and highest Elo ratings used in the skill level calculation
-    constexpr static int LowestElo  = 1320;
-    constexpr static int HighestElo = 3190;
-
-    Skill(int skill_level, int uci_elo) {
-        if (uci_elo)
-        {
-            double e = double(uci_elo - LowestElo) / (HighestElo - LowestElo);
-            level = std::clamp((((37.2473 * e - 40.8525) * e + 22.2943) * e - 0.311438), 0.0, 19.0);
-        }
-        else
-            level = double(skill_level);
-    }
-    bool enabled() const { return level < 20.0; }
-    bool time_to_pick(Depth depth) const { return depth == 1 + int(level); }
-    Move pick_best(const RootMoves&, size_t multiPV);
-
-    double level;
-    Move   best = Move::none();
 };
 
 // SearchManager manages the search from the main thread. It is responsible for
@@ -235,7 +196,6 @@ class SearchManager: public ISearchManager {
 
     void pv(Search::Worker&           worker,
             const ThreadPool&         threads,
-            const TranspositionTable& tt,
             Depth                     depth);
 
     Stockfish::TimeManagement tm;
@@ -319,8 +279,8 @@ class Worker {
     LimitsType limits;
 
     size_t                pvIdx, pvLast;
-    std::atomic<uint64_t> nodes, tbHits, bestMoveChanges;
-    int                   selDepth, nmpMinPly;
+    std::atomic<uint64_t> nodes, bestMoveChanges;
+    int                   nmpMinPly;
 
     Value optimism[COLOR_NB];
 
@@ -334,12 +294,10 @@ class Worker {
     NumaReplicatedAccessToken numaAccessToken;
 
     // Reductions lookup table initialized at startup
-    std::array<int, MAX_MOVES> reductions;  // [depth or moveNumber]
+    std::array<int, MAX_PLY> reductions;  // [depth or moveNumber]
 
     // The main thread has a SearchManager, the others have a NullSearchManager
     std::unique_ptr<ISearchManager> manager;
-
-    Tablebases::Config tbConfig;
 
     const OptionsMap&                               options;
     ThreadPool&                                     threads;
@@ -363,4 +321,3 @@ struct ConthistBonus {
 
 }  // namespace Stockfish
 
-#endif  // #ifndef SEARCH_H_INCLUDED

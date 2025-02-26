@@ -26,7 +26,6 @@
 
 #include "memory.h"
 #include "misc.h"
-#include "syzygy/tbprobe.h"
 #include "thread.h"
 
 namespace Stockfish {
@@ -188,22 +187,6 @@ void TranspositionTable::clear(ThreadPool& threads) {
     for (size_t i = 0; i < threadCount; ++i)
         threads.wait_on_thread(i);
 }
-
-
-// Returns an approximation of the hashtable
-// occupation during a search. The hash is x permill full, as per UCI protocol.
-// Only counts entries which match the current generation.
-int TranspositionTable::hashfull(int maxAge) const {
-    int maxAgeInternal = maxAge << GENERATION_BITS;
-    int cnt            = 0;
-    for (int i = 0; i < 1000; ++i)
-        for (int j = 0; j < ClusterSize; ++j)
-            cnt += table[i].entry[j].is_occupied()
-                && table[i].entry[j].relative_age(generation8) <= maxAgeInternal;
-
-    return cnt / ClusterSize;
-}
-
 
 void TranspositionTable::new_search() {
     // increment by delta to keep lower bits as is

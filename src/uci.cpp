@@ -22,11 +22,9 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
-#include <iterator>
 #include <optional>
 #include <sstream>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 #include "benchmark.h"
@@ -135,33 +133,12 @@ void UCIEngine::loop() {
             engine.search_clear();
         else if (token == "isready")
             sync_cout << "readyok" << sync_endl;
-
-        // Add custom non-UCI commands, mainly for debugging purposes.
-        // These commands must not be used during a search!
-        else if (token == "flip")
-            engine.flip();
         else if (token == "bench")
             bench(is);
         else if (token == BenchmarkCommand)
             benchmark(is);
-        else if (token == "d")
-            sync_cout << engine.visualize() << sync_endl;
-        else if (token == "eval")
-            engine.trace_eval();
         else if (token == "compiler")
             sync_cout << compiler_info() << sync_endl;
-        else if (token == "export_net")
-        {
-            std::pair<std::optional<std::string>, std::string> files[2];
-
-            if (is >> std::skipws >> files[0].second)
-                files[0].first = files[0].second;
-
-            if (is >> std::skipws >> files[1].second)
-                files[1].first = files[1].second;
-
-            engine.save_network(files);
-        }
         else if (token == "--help" || token == "help" || token == "--license" || token == "license")
             sync_cout
               << "\nStockfish is a powerful chess engine for playing and analyzing."
@@ -187,7 +164,7 @@ Search::LimitsType UCIEngine::parse_limits(std::istream& is) {
     while (is >> token)
         if (token == "searchmoves")  // Needs to be the last command on the line
             while (is >> token)
-                limits.searchmoves.push_back(to_lower(token));
+            	;
 
         else if (token == "wtime")
             is >> limits.time[WHITE];
@@ -285,8 +262,6 @@ void UCIEngine::bench(std::istream& args) {
 
     elapsed = now() - elapsed + 1;  // Ensure positivity to avoid a 'divide by zero'
 
-    dbg_print();
-
     std::cerr << "\n==========================="    //
               << "\nTotal time (ms) : " << elapsed  //
               << "\nNodes searched  : " << nodes    //
@@ -366,22 +341,6 @@ void UCIEngine::benchmark(std::istream& args) {
     cnt   = 1;
     nodes = 0;
 
-    int           numHashfullReadings = 0;
-    constexpr int hashfullAges[]      = {0, 999};  // Only normal hashfull and touched hash.
-    int           totalHashfull[std::size(hashfullAges)] = {0};
-    int           maxHashfull[std::size(hashfullAges)]   = {0};
-
-    auto updateHashfullReadings = [&]() {
-        numHashfullReadings += 1;
-
-        for (int i = 0; i < static_cast<int>(std::size(hashfullAges)); ++i)
-        {
-            const int hashfull = engine.get_hashfull(hashfullAges[i]);
-            maxHashfull[i]     = std::max(maxHashfull[i], hashfull);
-            totalHashfull[i] += hashfull;
-        }
-    };
-
     engine.search_clear();  // search_clear may take a while
 
     for (const auto& cmd : setup.commands)
@@ -404,8 +363,6 @@ void UCIEngine::benchmark(std::istream& args) {
 
             totalTime += now() - elapsed;
 
-            updateHashfullReadings();
-
             nodes += nodesSearched;
             nodesSearched = 0;
         }
@@ -419,13 +376,7 @@ void UCIEngine::benchmark(std::istream& args) {
 
     totalTime = std::max<TimePoint>(totalTime, 1);  // Ensure positivity to avoid a 'divide by zero'
 
-    dbg_print();
-
     std::cerr << "\n";
-
-    static_assert(
-      std::size(hashfullAges) == 2 && hashfullAges[0] == 0 && hashfullAges[1] == 999,
-      "Hardcoded for display. Would complicate the code needlessly in the current state.");
 
     std::string threadBinding = engine.thread_binding_information_as_string();
     if (threadBinding.empty())
@@ -446,11 +397,6 @@ void UCIEngine::benchmark(std::istream& args) {
               << "\nThread count               : " << setup.threads
               << "\nThread binding             : " << threadBinding
               << "\nTT size [MiB]              : " << setup.ttSize
-              << "\nHash max, avg [per mille]  : "
-              << "\n    single search          : " << maxHashfull[0] << ", "
-              << totalHashfull[0] / numHashfullReadings
-              << "\n    single game            : " << maxHashfull[1] << ", "
-              << totalHashfull[1] / numHashfullReadings
               << "\nTotal nodes searched       : " << nodes
               << "\nTotal search time [s]      : " << totalTime / 1000.0
               << "\nNodes/second               : " << 1000 * nodes / totalTime << std::endl;
@@ -626,7 +572,6 @@ void UCIEngine::on_update_full(const Engine::InfoFull& info, bool showWDL) {
 
     ss << "info";
     ss << " depth " << info.depth                 //
-       << " seldepth " << info.selDepth           //
        << " multipv " << info.multiPV             //
        << " score " << format_score(info.score);  //
 
@@ -638,8 +583,6 @@ void UCIEngine::on_update_full(const Engine::InfoFull& info, bool showWDL) {
 
     ss << " nodes " << info.nodes        //
        << " nps " << info.nps            //
-       << " hashfull " << info.hashfull  //
-       << " tbhits " << info.tbHits      //
        << " time " << info.timeMs        //
        << " pv " << info.pv;             //
 

@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TT_H_INCLUDED
-#define TT_H_INCLUDED
+#pragma once
 
 #include <cstddef>
 #include <cstdint>
@@ -85,8 +84,6 @@ class TranspositionTable {
 
     void resize(size_t mbSize, ThreadPool& threads);  // Set TT size
     void clear(ThreadPool& threads);                  // Re-initialize memory, multithreaded
-    int  hashfull(int maxAge = 0)
-      const;  // Approximate what fraction of entries (permille) have been written to during this root search
 
     void
     new_search();  // This must be called at the beginning of each root search to track entry aging
@@ -107,4 +104,3 @@ class TranspositionTable {
 
 }  // namespace Stockfish
 
-#endif  // #ifndef TT_H_INCLUDED
