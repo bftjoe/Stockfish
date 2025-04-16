@@ -16,8 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef THREAD_H_INCLUDED
-#define THREAD_H_INCLUDED
+#pragma once
 
 #include <atomic>
 #include <condition_variable>
@@ -36,7 +35,6 @@
 namespace Stockfish {
 
 
-class OptionsMap;
 using Value = int;
 
 // Sometimes we don't want to actually bind the threads, but the recipient still
@@ -129,7 +127,7 @@ class ThreadPool {
     ThreadPool& operator=(const ThreadPool&) = delete;
     ThreadPool& operator=(ThreadPool&&)      = delete;
 
-    void   start_thinking(const OptionsMap&, Position&, StateListPtr&, Search::LimitsType);
+    void   start_thinking(Position&, StateListPtr&, Search::LimitsType);
     void   run_on_thread(size_t threadId, std::function<void()> f);
     void   wait_on_thread(size_t threadId);
     size_t num_threads() const;
@@ -175,4 +173,3 @@ class ThreadPool {
 
 }  // namespace Stockfish
 
-#endif  // #ifndef THREAD_H_INCLUDED

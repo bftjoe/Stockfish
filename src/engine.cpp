@@ -35,7 +35,6 @@
 #include "perft.h"
 #include "position.h"
 #include "search.h"
-#include "syzygy/tbprobe.h"
 #include "types.h"
 #include "uci.h"
 #include "ucioption.h"
@@ -59,13 +58,6 @@ Engine::Engine(std::optional<std::string> path) :
         NN::NetworkSmall({EvalFileDefaultNameSmall, "None", ""}, NN::EmbeddedNNUEType::SMALL))) {
     pos.set(StartFEN, false, &states->back());
 
-
-    options.add(  //
-      "Debug Log File", Option("", [](const Option& o) {
-          start_logger(o);
-          return std::nullopt;
-      }));
-
     options.add(  //
       "NumaPolicy", Option("auto", [this](const Option& o) {
           set_numa_config_from_option(o);
@@ -86,44 +78,13 @@ Engine::Engine(std::optional<std::string> path) :
       }));
 
     options.add(  //
-      "Clear Hash", Option([this](const Option&) {
-          search_clear();
-          return std::nullopt;
-      }));
-
-    options.add(  //
       "Ponder", Option(false));
-
-    options.add(  //
-      "MultiPV", Option(1, 1, MAX_MOVES));
-
-    options.add("Skill Level", Option(20, 0, 20));
 
     options.add("Move Overhead", Option(10, 0, 5000));
 
-    options.add("nodestime", Option(0, 0, 10000));
-
     options.add("UCI_Chess960", Option(false));
 
-    options.add("UCI_LimitStrength", Option(false));
-
-    options.add("UCI_Elo",
-                Option(Stockfish::Search::Skill::LowestElo, Stockfish::Search::Skill::LowestElo,
-                       Stockfish::Search::Skill::HighestElo));
-
     options.add("UCI_ShowWDL", Option(false));
-
-    options.add(  //
-      "SyzygyPath", Option("", [](const Option& o) {
-          Tablebases::init(o);
-          return std::nullopt;
-      }));
-
-    options.add("SyzygyProbeDepth", Option(1, 1, 100));
-
-    options.add("Syzygy50MoveRule", Option(true));
-
-    options.add("SyzygyProbeLimit", Option(7, 0, 7));
 
     options.add(  //
       "EvalFile", Option(EvalFileDefaultNameBig, [this](const Option& o) {
@@ -151,7 +112,7 @@ void Engine::go(Search::LimitsType& limits) {
     assert(limits.perft == 0);
     verify_networks();
 
-    threads.start_thinking(options, pos, states, limits);
+    threads.start_thinking(pos, states, limits);
 }
 void Engine::stop() { threads.stop = true; }
 
@@ -160,9 +121,6 @@ void Engine::search_clear() {
 
     tt.clear(threads);
     threads.clear();
-
-    // @TODO wont work with multiple instances
-    Tablebases::init(options["SyzygyPath"]);  // Free mapped files
 }
 
 void Engine::set_on_update_no_moves(std::function<void(const Engine::InfoShort&)>&& f) {
@@ -307,8 +265,6 @@ std::string Engine::visualize() const {
     ss << pos;
     return ss.str();
 }
-
-int Engine::get_hashfull(int maxAge) const { return tt.hashfull(maxAge); }
 
 std::vector<std::pair<size_t, size_t>> Engine::get_bound_thread_count_by_numa_node() const {
     auto                                   counts = threads.get_bound_thread_count_by_numa_node();

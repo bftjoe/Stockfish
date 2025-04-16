@@ -18,8 +18,7 @@
 
 // Definition of layer AffineTransform of NNUE evaluation function
 
-#ifndef NNUE_LAYERS_AFFINE_TRANSFORM_H_INCLUDED
-#define NNUE_LAYERS_AFFINE_TRANSFORM_H_INCLUDED
+#pragma once
 
 #include <cstdint>
 #include <iostream>
@@ -303,4 +302,3 @@ class AffineTransform {
 
 }  // namespace Stockfish::Eval::NNUE::Layers
 
-#endif  // #ifndef NNUE_LAYERS_AFFINE_TRANSFORM_H_INCLUDED
