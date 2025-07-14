@@ -25,7 +25,7 @@
 #include <cstdint>
 #include <iostream>
 
-#include "../../bitboard.h"
+#include "../bitboard.h"
 #include "../simd.h"
 #include "../nnue_common.h"
 

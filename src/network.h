@@ -28,8 +28,8 @@
 #include <tuple>
 #include <utility>
 
-#include "../memory.h"
-#include "../types.h"
+#include "memory.h"
+#include "types.h"
 #include "nnue_accumulator.h"
 #include "nnue_architecture.h"
 #include "nnue_common.h"

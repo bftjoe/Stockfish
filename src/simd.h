@@ -35,7 +35,7 @@
     #include <arm_neon.h>
 #endif
 
-#include "../types.h"
+#include "types.h"
 #include "nnue_common.h"
 
 namespace Stockfish::Eval::NNUE::SIMD {

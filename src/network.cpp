@@ -26,14 +26,11 @@
 #include <type_traits>
 #include <vector>
 
-#define INCBIN_SILENCE_BITCODE_WARNING
-#include "../incbin/incbin.h"
-
-#include "../evaluate.h"
-#include "../memory.h"
-#include "../misc.h"
-#include "../position.h"
-#include "../types.h"
+#include "evaluate.h"
+#include "memory.h"
+#include "misc.h"
+#include "position.h"
+#include "types.h"
 #include "nnue_architecture.h"
 #include "nnue_common.h"
 #include "nnue_misc.h"
@@ -45,17 +42,21 @@
 //     const unsigned char *const gEmbeddedNNUEEnd;     // a marker to the end
 //     const unsigned int         gEmbeddedNNUESize;    // the size of the embedded file
 // Note that this does not work in Microsoft Visual Studio.
-#if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF)
-INCBIN(EmbeddedNNUEBig, EvalFileDefaultNameBig);
-INCBIN(EmbeddedNNUESmall, EvalFileDefaultNameSmall);
-#else
-const unsigned char        gEmbeddedNNUEBigData[1]   = {0x0};
-const unsigned char* const gEmbeddedNNUEBigEnd       = &gEmbeddedNNUEBigData[1];
-const unsigned int         gEmbeddedNNUEBigSize      = 1;
-const unsigned char        gEmbeddedNNUESmallData[1] = {0x0};
-const unsigned char* const gEmbeddedNNUESmallEnd     = &gEmbeddedNNUESmallData[1];
-const unsigned int         gEmbeddedNNUESmallSize    = 1;
-#endif
+// INCBIN(EmbeddedNNUEBig, EvalFileDefaultNameBig);
+// INCBIN(EmbeddedNNUESmall, EvalFileDefaultNameSmall);
+
+
+const unsigned char        gEmbeddedNNUEBigData[] { 
+#embed EvalFileDefaultNameBig
+};
+const unsigned int         gEmbeddedNNUEBigSize      = sizeof(gEmbeddedNNUEBigData) / sizeof(gEmbeddedNNUEBigData[0]);
+const unsigned char* const gEmbeddedNNUEBigEnd       = &gEmbeddedNNUEBigData[gEmbeddedNNUEBigSize];
+const unsigned char        gEmbeddedNNUESmallData[] = {
+#embed EvalFileDefaultNameSmall
+};
+const unsigned int         gEmbeddedNNUESmallSize      = sizeof(gEmbeddedNNUESmallData) / sizeof(gEmbeddedNNUESmallData[0]);
+const unsigned char* const gEmbeddedNNUESmallEnd     = &gEmbeddedNNUESmallData[gEmbeddedNNUESmallSize];
+
 
 namespace {
 

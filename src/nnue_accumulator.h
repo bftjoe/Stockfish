@@ -27,7 +27,7 @@
 #include <cstring>
 #include <vector>
 
-#include "../types.h"
+#include "types.h"
 #include "nnue_architecture.h"
 #include "nnue_common.h"
 

@@ -28,12 +28,12 @@
 #include <sstream>
 #include <tuple>
 
-#include "nnue/network.h"
-#include "nnue/nnue_misc.h"
+#include "network.h"
+#include "nnue_misc.h"
 #include "position.h"
 #include "types.h"
 #include "uci.h"
-#include "nnue/nnue_accumulator.h"
+#include "nnue_accumulator.h"
 
 namespace Stockfish {
 

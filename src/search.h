@@ -33,8 +33,8 @@
 
 #include "history.h"
 #include "misc.h"
-#include "nnue/network.h"
-#include "nnue/nnue_accumulator.h"
+#include "network.h"
+#include "nnue_accumulator.h"
 #include "numa.h"
 #include "position.h"
 #include "score.h"
