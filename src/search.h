@@ -38,7 +38,6 @@
 #include "numa.h"
 #include "position.h"
 #include "score.h"
-#include "syzygy/tbprobe.h"
 #include "timeman.h"
 #include "types.h"
 
@@ -172,7 +171,6 @@ struct InfoFull: InfoShort {
     size_t           timeMs;
     size_t           nodes;
     size_t           nps;
-    size_t           tbHits;
     std::string_view pv;
     int              hashfull;
 };
@@ -328,7 +326,7 @@ class Worker {
     LimitsType limits;
 
     size_t                pvIdx, pvLast;
-    std::atomic<uint64_t> nodes, tbHits, bestMoveChanges;
+    std::atomic<uint64_t> nodes, bestMoveChanges;
     int                   selDepth, nmpMinPly;
 
     Value optimism[COLOR_NB];
@@ -347,8 +345,6 @@ class Worker {
 
     // The main thread has a SearchManager, the others have a NullSearchManager
     std::unique_ptr<ISearchManager> manager;
-
-    Tablebases::Config tbConfig;
 
     const OptionsMap&                               options;
     ThreadPool&                                     threads;
