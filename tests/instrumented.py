@@ -397,20 +397,6 @@ class TestInteractive(metaclass=OrderedClassMembers):
         self.stockfish.send_command("go depth 5")
         self.stockfish.starts_with("bestmove")
 
-    def test_multipv_setting(self):
-        self.stockfish.send_command("setoption name MultiPV value 4")
-        self.stockfish.send_command("position startpos")
-        self.stockfish.send_command("go depth 5")
-        self.stockfish.starts_with("bestmove")
-
-    def test_fen_position_with_skill_level(self):
-        self.stockfish.send_command("setoption name Skill Level value 10")
-        self.stockfish.send_command("position startpos")
-        self.stockfish.send_command("go depth 5")
-        self.stockfish.starts_with("bestmove")
-
-        self.stockfish.send_command("setoption name Skill Level value 20")
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run Stockfish with testing options")

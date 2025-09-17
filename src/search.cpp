@@ -198,19 +198,9 @@ void Search::Worker::start_searching() {
                                               - limits.inc[rootPos.side_to_move()]);
 
     Worker* bestThread = this;
-    Skill   skill =
-      Skill(options["Skill Level"], options["UCI_LimitStrength"] ? int(options["UCI_Elo"]) : 0);
-
-    if (int(options["MultiPV"]) == 1 && !limits.depth && !limits.mate && !skill.enabled()
-        && rootMoves[0].pv[0] != Move::none())
-        bestThread = threads.get_best_thread()->worker.get();
 
     main_manager()->bestPreviousScore        = bestThread->rootMoves[0].score;
     main_manager()->bestPreviousAverageScore = bestThread->rootMoves[0].averageScore;
-
-    // Send again PV info if we have a new best thread
-    if (bestThread != this)
-        main_manager()->pv(*bestThread, threads, tt, bestThread->completedDepth);
 
     std::string ponder;
 
@@ -268,15 +258,7 @@ void Search::Worker::iterative_deepening() {
             mainThread->iterValue.fill(mainThread->bestPreviousScore);
     }
 
-    size_t multiPV = size_t(options["MultiPV"]);
-    Skill skill(options["Skill Level"], options["UCI_LimitStrength"] ? int(options["UCI_Elo"]) : 0);
-
-    // When playing with strength handicap enable MultiPV search that we will
-    // use behind-the-scenes to retrieve a set of possible moves.
-    if (skill.enabled())
-        multiPV = std::max(multiPV, size_t(4));
-
-    multiPV = std::min(multiPV, rootMoves.size());
+    auto multiPV = std::min((size_t) 1, rootMoves.size());
 
     int searchAgainCounter = 0;
 
@@ -352,13 +334,6 @@ void Search::Worker::iterative_deepening() {
                 if (threads.stop)
                     break;
 
-                // When failing high/low give some update before a re-search. To avoid
-                // excessive output that could hang GUIs like Fritz 19, only start
-                // at nodes > 10M (rather than depth N, which can be reached quickly)
-                if (mainThread && multiPV == 1 && (bestValue <= alpha || bestValue >= beta)
-                    && nodes > 10000000)
-                    main_manager()->pv(*this, threads, tt, rootDepth);
-
                 // In case of failing low/high increase aspiration window and re-search,
                 // otherwise exit the loop.
                 if (bestValue <= alpha)
@@ -433,10 +408,6 @@ void Search::Worker::iterative_deepening() {
                     && VALUE_MATE + rootMoves[0].score <= 2 * limits.mate)))
             threads.stop = true;
 
-        // If the skill level is enabled and time is up, pick a sub-optimal best move
-        if (skill.enabled() && skill.time_to_pick(rootDepth))
-            skill.pick_best(rootMoves, multiPV);
-
         // Use part of the gained time from a previous stable move for the current move
         for (auto&& th : threads)
         {
@@ -499,12 +470,6 @@ void Search::Worker::iterative_deepening() {
         return;
 
     mainThread->previousTimeReduction = timeReduction;
-
-    // If the skill level is enabled, swap the best PV line with the sub-optimal one
-    if (skill.enabled())
-        std::swap(rootMoves[0],
-                  *std::find(rootMoves.begin(), rootMoves.end(),
-                             skill.best ? skill.best : skill.pick_best(rootMoves, multiPV)));
 }
 
 
@@ -1813,37 +1778,6 @@ void update_quiet_histories(
 
 }
 
-// When playing with strength handicap, choose the best move among a set of
-// RootMoves using a statistical rule dependent on 'level'. Idea by Heinz van Saanen.
-Move Skill::pick_best(const RootMoves& rootMoves, size_t multiPV) {
-    static PRNG rng(now());  // PRNG sequence should be non-deterministic
-
-    // RootMoves are already sorted by score in descending order
-    Value  topScore = rootMoves[0].score;
-    int    delta    = std::min(topScore - rootMoves[multiPV - 1].score, int(PawnValue));
-    int    maxScore = -VALUE_INFINITE;
-    double weakness = 120 - 2 * level;
-
-    // Choose best move. For each move score we add two terms, both dependent on
-    // weakness. One is deterministic and bigger for weaker levels, and one is
-    // random. Then we choose the move with the resulting highest score.
-    for (size_t i = 0; i < multiPV; ++i)
-    {
-        // This is our magic formula
-        int push = int(weakness * int(topScore - rootMoves[i].score)
-                       + delta * (rng.rand<unsigned>() % int(weakness)))
-                 / 128;
-
-        if (rootMoves[i].score + push >= maxScore)
-        {
-            maxScore = rootMoves[i].score + push;
-            best     = rootMoves[i].pv[0];
-        }
-    }
-
-    return best;
-}
-
 
 // Used to print debug info and, more importantly, to detect
 // when we are out of available time and thus stop the search.
@@ -1888,7 +1822,7 @@ void SearchManager::pv(Search::Worker&           worker,
     auto&      rootMoves = worker.rootMoves;
     auto&      pos       = worker.rootPos;
     size_t     pvIdx     = worker.pvIdx;
-    size_t     multiPV   = std::min(size_t(worker.options["MultiPV"]), rootMoves.size());
+    size_t     multiPV   = std::min(size_t(1), rootMoves.size());
 
     for (size_t i = 0; i < multiPV; ++i)
     {
