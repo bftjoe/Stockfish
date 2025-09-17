@@ -38,18 +38,10 @@
 #include "nnue/nnue_misc.h"
 
 #if defined(NNUE_EMBEDDING_OFF) || defined(_MSC_VER)
-const unsigned char gEmbeddedNNUEBigData[1] = {0x0};
-const unsigned char* const gEmbeddedNNUEBigEnd = &gEmbeddedNNUEBigData[1];
-const unsigned int gEmbeddedNNUEBigSize = 1;
 const unsigned char gEmbeddedNNUESmallData[1] = {0x0};
 const unsigned char* const gEmbeddedNNUESmallEnd = &gEmbeddedNNUESmallData[1];
 const unsigned int gEmbeddedNNUESmallSize = 1;
 #elif defined(__cpp_pp_embed) // In the Makefile, change std=c++17 to std=c++2a to use embed
-const unsigned char gEmbeddedNNUEBigData[] = {
-#embed EvalFileDefaultNameBig
-};
-const unsigned int gEmbeddedNNUEBigSize = sizeof(gEmbeddedNNUEBigData) / sizeof(gEmbeddedNNUEBigData[0]);
-const unsigned char* const gEmbeddedNNUEBigEnd = &gEmbeddedNNUEBigData[gEmbeddedNNUEBigSize];
 const unsigned char gEmbeddedNNUESmallData[] = {
 #embed EvalFileDefaultNameSmall
 };
@@ -65,7 +57,6 @@ const unsigned char* const gEmbeddedNNUESmallEnd = &gEmbeddedNNUESmallData[gEmbe
 //     const unsigned char *const gEmbeddedNNUEEnd;     // a marker to the end
 //     const unsigned int         gEmbeddedNNUESize;    // the size of the embedded file
 // Note that this does not work in Microsoft Visual Studio.
-INCBIN(EmbeddedNNUEBig, EvalFileDefaultNameBig);
 INCBIN(EmbeddedNNUESmall, EvalFileDefaultNameSmall);
 #endif
 
@@ -85,11 +76,8 @@ struct EmbeddedNNUE {
 
 using namespace Stockfish::Eval::NNUE;
 
-EmbeddedNNUE get_embedded(EmbeddedNNUEType type) {
-    if (type == EmbeddedNNUEType::BIG)
-        return EmbeddedNNUE(gEmbeddedNNUEBigData, gEmbeddedNNUEBigEnd, gEmbeddedNNUEBigSize);
-    else
-        return EmbeddedNNUE(gEmbeddedNNUESmallData, gEmbeddedNNUESmallEnd, gEmbeddedNNUESmallSize);
+EmbeddedNNUE get_embedded() {
+    return EmbeddedNNUE(gEmbeddedNNUESmallData, gEmbeddedNNUESmallEnd, gEmbeddedNNUESmallSize);
 }
 
 }
@@ -123,8 +111,7 @@ bool write_parameters(std::ostream& stream, T& reference) {
 
 template<typename Arch, typename Transformer>
 Network<Arch, Transformer>::Network(const Network<Arch, Transformer>& other) :
-    evalFile(other.evalFile),
-    embeddedType(other.embeddedType) {
+    evalFile(other.evalFile) {
 
     if (other.featureTransformer)
         featureTransformer = make_unique_large_page<Transformer>(*other.featureTransformer);
@@ -142,7 +129,6 @@ template<typename Arch, typename Transformer>
 Network<Arch, Transformer>&
 Network<Arch, Transformer>::operator=(const Network<Arch, Transformer>& other) {
     evalFile     = other.evalFile;
-    embeddedType = other.embeddedType;
 
     if (other.featureTransformer)
         featureTransformer = make_unique_large_page<Transformer>(*other.featureTransformer);
@@ -280,36 +266,6 @@ void Network<Arch, Transformer>::verify(std::string                             
     }
 }
 
-
-template<typename Arch, typename Transformer>
-NnueEvalTrace
-Network<Arch, Transformer>::trace_evaluate(const Position&                         pos,
-                                           AccumulatorStack&                       accumulatorStack,
-                                           AccumulatorCaches::Cache<FTDimensions>* cache) const {
-
-    constexpr uint64_t alignment = CacheLineSize;
-
-    alignas(alignment)
-      TransformedFeatureType transformedFeatures[FeatureTransformer<FTDimensions>::BufferSize];
-
-    ASSERT_ALIGNED(transformedFeatures, alignment);
-
-    NnueEvalTrace t{};
-    t.correctBucket = (pos.count<ALL_PIECES>() - 1) / 4;
-    for (IndexType bucket = 0; bucket < LayerStacks; ++bucket)
-    {
-        const auto materialist =
-          featureTransformer->transform(pos, accumulatorStack, cache, transformedFeatures, bucket);
-        const auto positional = network[bucket].propagate(transformedFeatures);
-
-        t.psqt[bucket]       = static_cast<Value>(materialist / OutputScale);
-        t.positional[bucket] = static_cast<Value>(positional / OutputScale);
-    }
-
-    return t;
-}
-
-
 template<typename Arch, typename Transformer>
 void Network<Arch, Transformer>::load_user_net(const std::string& dir,
                                                const std::string& evalfilePath) {
@@ -335,7 +291,7 @@ void Network<Arch, Transformer>::load_internal() {
         }
     };
 
-    const auto embedded = get_embedded(embeddedType);
+    const auto embedded = get_embedded();
 
     MemoryBuffer buffer(const_cast<char*>(reinterpret_cast<const char*>(embedded.data)),
                         size_t(embedded.size));

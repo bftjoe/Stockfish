@@ -437,8 +437,8 @@ ifeq ($(MAKELEVEL),0)
        export ENV_LDFLAGS := $(LDFLAGS)
 endif
 
-CXXFLAGS = $(ENV_CXXFLAGS) -Wall -Wcast-qual -fno-exceptions -std=c++2c $(EXTRACXXFLAGS)
-DEPENDFLAGS = $(ENV_DEPENDFLAGS) -std=c++2c
+CXXFLAGS = $(ENV_CXXFLAGS) -Wall -Wcast-qual -fno-exceptions -std=c++20 $(EXTRACXXFLAGS)
+DEPENDFLAGS = $(ENV_DEPENDFLAGS) -std=c++20
 LDFLAGS = $(ENV_LDFLAGS) $(EXTRALDFLAGS)
 
 ifeq ($(COMP),)

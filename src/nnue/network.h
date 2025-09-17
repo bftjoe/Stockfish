@@ -42,11 +42,6 @@ class Position;
 
 namespace Stockfish::Eval::NNUE {
 
-enum class EmbeddedNNUEType {
-    BIG,
-    SMALL,
-};
-
 using NetworkOutput = std::tuple<Value, Value>;
 
 template<typename Arch, typename Transformer>
@@ -54,9 +49,8 @@ class Network {
     static constexpr IndexType FTDimensions = Arch::TransformedFeatureDimensions;
 
    public:
-    Network(EvalFile file, EmbeddedNNUEType type) :
-        evalFile(file),
-        embeddedType(type) {}
+    Network(EvalFile file) :
+        evalFile(file) {}
 
     Network(const Network& other);
     Network(Network&& other) = default;
@@ -73,9 +67,6 @@ class Network {
 
 
     void verify(std::string evalfilePath, const std::function<void(std::string_view)>&) const;
-    NnueEvalTrace trace_evaluate(const Position&                         pos,
-                                 AccumulatorStack&                       accumulatorStack,
-                                 AccumulatorCaches::Cache<FTDimensions>* cache) const;
 
    private:
     void load_user_net(const std::string&, const std::string&);
@@ -99,7 +90,6 @@ class Network {
     AlignedPtr<Arch[]> network;
 
     EvalFile         evalFile;
-    EmbeddedNNUEType embeddedType;
 
     // Hash value of evaluation function structure
     static constexpr std::uint32_t hash = Transformer::get_hash_value() ^ Arch::get_hash_value();
@@ -118,16 +108,12 @@ using SmallNetworkArchitecture =
 using BigFeatureTransformer  = FeatureTransformer<TransformedFeatureDimensionsBig>;
 using BigNetworkArchitecture = NetworkArchitecture<TransformedFeatureDimensionsBig, L2Big, L3Big>;
 
-using NetworkBig   = Network<BigNetworkArchitecture, BigFeatureTransformer>;
 using NetworkSmall = Network<SmallNetworkArchitecture, SmallFeatureTransformer>;
 
 
 struct Networks {
-    Networks(NetworkBig&& nB, NetworkSmall&& nS) :
-        big(std::move(nB)),
+    Networks(NetworkSmall&& nS) :
         small(std::move(nS)) {}
-
-    NetworkBig   big;
     NetworkSmall small;
 };
 
