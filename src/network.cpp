@@ -16,7 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "network.h"
+#include "nnue/network.h"
 
 #include <cstdlib>
 #include <fstream>
@@ -26,18 +26,30 @@
 #include <type_traits>
 #include <vector>
 
+#include "evaluate.h"
+#include "memory.h"
+#include "misc.h"
+#include "position.h"
+#include "types.h"
+#include "nnue/nnue_accumulator.h"
+#include "nnue/nnue_architecture.h"
+#include "nnue/nnue_common.h"
+#include "nnue/nnue_feature_transformer.h"
+#include "nnue/nnue_misc.h"
+
+#if defined(NNUE_EMBEDDING_OFF) || defined(_MSC_VER)
+const unsigned char gEmbeddedNNUESmallData[1] = {0x0};
+const unsigned char* const gEmbeddedNNUESmallEnd = &gEmbeddedNNUESmallData[1];
+const unsigned int gEmbeddedNNUESmallSize = 1;
+#elif defined(__cpp_pp_embed) // In the Makefile, change std=c++17 to std=c++2a to use embed
+const unsigned char gEmbeddedNNUESmallData[] = {
+#embed EvalFileDefaultNameSmall
+};
+const unsigned int gEmbeddedNNUESmallSize = sizeof(gEmbeddedNNUESmallData) / sizeof(gEmbeddedNNUESmallData[0]);
+const unsigned char* const gEmbeddedNNUESmallEnd = &gEmbeddedNNUESmallData[gEmbeddedNNUESmallSize];
+#else
 #define INCBIN_SILENCE_BITCODE_WARNING
-#include "../incbin/incbin.h"
-
-#include "../evaluate.h"
-#include "../memory.h"
-#include "../misc.h"
-#include "../position.h"
-#include "../types.h"
-#include "nnue_architecture.h"
-#include "nnue_common.h"
-#include "nnue_misc.h"
-
+#include "incbin/incbin.h"
 // Macro to embed the default efficiently updatable neural network (NNUE) file
 // data in the engine binary (using incbin.h, by Dale Weiler).
 // This macro invocation will declare the following three variables
@@ -45,16 +57,7 @@
 //     const unsigned char *const gEmbeddedNNUEEnd;     // a marker to the end
 //     const unsigned int         gEmbeddedNNUESize;    // the size of the embedded file
 // Note that this does not work in Microsoft Visual Studio.
-#if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF)
-INCBIN(EmbeddedNNUEBig, EvalFileDefaultNameBig);
 INCBIN(EmbeddedNNUESmall, EvalFileDefaultNameSmall);
-#else
-const unsigned char        gEmbeddedNNUEBigData[1]   = {0x0};
-const unsigned char* const gEmbeddedNNUEBigEnd       = &gEmbeddedNNUEBigData[1];
-const unsigned int         gEmbeddedNNUEBigSize      = 1;
-const unsigned char        gEmbeddedNNUESmallData[1] = {0x0};
-const unsigned char* const gEmbeddedNNUESmallEnd     = &gEmbeddedNNUESmallData[1];
-const unsigned int         gEmbeddedNNUESmallSize    = 1;
 #endif
 
 namespace {
@@ -73,11 +76,8 @@ struct EmbeddedNNUE {
 
 using namespace Stockfish::Eval::NNUE;
 
-EmbeddedNNUE get_embedded(EmbeddedNNUEType type) {
-    if (type == EmbeddedNNUEType::BIG)
-        return EmbeddedNNUE(gEmbeddedNNUEBigData, gEmbeddedNNUEBigEnd, gEmbeddedNNUEBigSize);
-    else
-        return EmbeddedNNUE(gEmbeddedNNUESmallData, gEmbeddedNNUESmallEnd, gEmbeddedNNUESmallSize);
+EmbeddedNNUE get_embedded() {
+    return EmbeddedNNUE(gEmbeddedNNUESmallData, gEmbeddedNNUESmallEnd, gEmbeddedNNUESmallSize);
 }
 
 }
@@ -111,8 +111,7 @@ bool write_parameters(std::ostream& stream, T& reference) {
 
 template<typename Arch, typename Transformer>
 Network<Arch, Transformer>::Network(const Network<Arch, Transformer>& other) :
-    evalFile(other.evalFile),
-    embeddedType(other.embeddedType) {
+    evalFile(other.evalFile) {
 
     if (other.featureTransformer)
         featureTransformer = make_unique_large_page<Transformer>(*other.featureTransformer);
@@ -130,7 +129,6 @@ template<typename Arch, typename Transformer>
 Network<Arch, Transformer>&
 Network<Arch, Transformer>::operator=(const Network<Arch, Transformer>& other) {
     evalFile     = other.evalFile;
-    embeddedType = other.embeddedType;
 
     if (other.featureTransformer)
         featureTransformer = make_unique_large_page<Transformer>(*other.featureTransformer);
@@ -268,36 +266,6 @@ void Network<Arch, Transformer>::verify(std::string                             
     }
 }
 
-
-template<typename Arch, typename Transformer>
-NnueEvalTrace
-Network<Arch, Transformer>::trace_evaluate(const Position&                         pos,
-                                           AccumulatorStack&                       accumulatorStack,
-                                           AccumulatorCaches::Cache<FTDimensions>* cache) const {
-
-    constexpr uint64_t alignment = CacheLineSize;
-
-    alignas(alignment)
-      TransformedFeatureType transformedFeatures[FeatureTransformer<FTDimensions>::BufferSize];
-
-    ASSERT_ALIGNED(transformedFeatures, alignment);
-
-    NnueEvalTrace t{};
-    t.correctBucket = (pos.count<ALL_PIECES>() - 1) / 4;
-    for (IndexType bucket = 0; bucket < LayerStacks; ++bucket)
-    {
-        const auto materialist =
-          featureTransformer->transform(pos, accumulatorStack, cache, transformedFeatures, bucket);
-        const auto positional = network[bucket].propagate(transformedFeatures);
-
-        t.psqt[bucket]       = static_cast<Value>(materialist / OutputScale);
-        t.positional[bucket] = static_cast<Value>(positional / OutputScale);
-    }
-
-    return t;
-}
-
-
 template<typename Arch, typename Transformer>
 void Network<Arch, Transformer>::load_user_net(const std::string& dir,
                                                const std::string& evalfilePath) {
@@ -323,7 +291,7 @@ void Network<Arch, Transformer>::load_internal() {
         }
     };
 
-    const auto embedded = get_embedded(embeddedType);
+    const auto embedded = get_embedded();
 
     MemoryBuffer buffer(const_cast<char*>(reinterpret_cast<const char*>(embedded.data)),
                         size_t(embedded.size));

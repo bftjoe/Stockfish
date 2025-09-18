@@ -129,7 +129,7 @@ class ThreadPool {
     ThreadPool& operator=(const ThreadPool&) = delete;
     ThreadPool& operator=(ThreadPool&&)      = delete;
 
-    void   start_thinking(const OptionsMap&, Position&, StateListPtr&, Search::LimitsType);
+    void   start_thinking(Position&, StateListPtr&, Search::LimitsType);
     void   run_on_thread(size_t threadId, std::function<void()> f);
     void   wait_on_thread(size_t threadId);
     size_t num_threads() const;
@@ -142,7 +142,6 @@ class ThreadPool {
     Thread*                main_thread() const { return threads.front().get(); }
     uint64_t               nodes_searched() const;
     uint64_t               tb_hits() const;
-    Thread*                get_best_thread() const;
     void                   start_searching();
     void                   wait_for_search_finished() const;
 

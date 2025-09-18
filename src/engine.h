@@ -32,7 +32,6 @@
 #include "numa.h"
 #include "position.h"
 #include "search.h"
-#include "syzygy/tbprobe.h"  // for Stockfish::Depth
 #include "thread.h"
 #include "tt.h"
 #include "ucioption.h"
@@ -87,11 +86,8 @@ class Engine {
     void load_networks();
     void load_big_network(const std::string& file);
     void load_small_network(const std::string& file);
-    void save_network(const std::pair<std::optional<std::string>, std::string> files[2]);
 
     // utility functions
-
-    void trace_eval() const;
 
     const OptionsMap& get_options() const;
     OptionsMap&       get_options();
