@@ -23,7 +23,6 @@
 #include <deque>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <utility>
 
 #include "movegen.h"
