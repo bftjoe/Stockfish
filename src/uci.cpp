@@ -26,7 +26,6 @@
 #include <optional>
 #include <sstream>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 #include "benchmark.h"
@@ -146,22 +145,8 @@ void UCIEngine::loop() {
             benchmark(is);
         else if (token == "d")
             sync_cout << engine.visualize() << sync_endl;
-        else if (token == "eval")
-            engine.trace_eval();
         else if (token == "compiler")
             sync_cout << compiler_info() << sync_endl;
-        else if (token == "export_net")
-        {
-            std::pair<std::optional<std::string>, std::string> files[2];
-
-            if (is >> std::skipws >> files[0].second)
-                files[0].first = files[0].second;
-
-            if (is >> std::skipws >> files[1].second)
-                files[1].first = files[1].second;
-
-            engine.save_network(files);
-        }
         else if (token == "--help" || token == "help" || token == "--license" || token == "license")
             sync_cout
               << "\nStockfish is a powerful chess engine for playing and analyzing."
@@ -269,8 +254,6 @@ void UCIEngine::bench(std::istream& args) {
                 nodes += nodesSearched;
                 nodesSearched = 0;
             }
-            else
-                engine.trace_eval();
         }
         else if (token == "setoption")
             setoption(is);
@@ -534,15 +517,10 @@ int win_rate_model(Value v, const Position& pos) {
 }
 
 std::string UCIEngine::format_score(const Score& s) {
-    constexpr int TB_CP = 20000;
     const auto    format =
       overload{[](Score::Mate mate) -> std::string {
                    auto m = (mate.plies > 0 ? (mate.plies + 1) : mate.plies) / 2;
                    return std::string("mate ") + std::to_string(m);
-               },
-               [](Score::Tablebase tb) -> std::string {
-                   return std::string("cp ")
-                        + std::to_string((tb.win ? TB_CP - tb.plies : -TB_CP - tb.plies));
                },
                [](Score::InternalUnits units) -> std::string {
                    return std::string("cp ") + std::to_string(units.value);
@@ -627,7 +605,7 @@ void UCIEngine::on_update_full(const Engine::InfoFull& info, bool showWDL) {
     ss << "info";
     ss << " depth " << info.depth                 //
        << " seldepth " << info.selDepth           //
-       << " multipv " << info.multiPV             //
+       << " multipv 1"                            //
        << " score " << format_score(info.score);  //
 
     if (!info.bound.empty())
@@ -639,7 +617,6 @@ void UCIEngine::on_update_full(const Engine::InfoFull& info, bool showWDL) {
     ss << " nodes " << info.nodes        //
        << " nps " << info.nps            //
        << " hashfull " << info.hashfull  //
-       << " tbhits " << info.tbHits      //
        << " time " << info.timeMs        //
        << " pv " << info.pv;             //
 

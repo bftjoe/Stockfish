@@ -23,12 +23,10 @@
 #include <deque>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <utility>
 
 #include "movegen.h"
 #include "search.h"
-#include "syzygy/tbprobe.h"
 #include "timeman.h"
 #include "types.h"
 #include "uci.h"
@@ -131,7 +129,6 @@ void Thread::idle_loop() {
 Search::SearchManager* ThreadPool::main_manager() { return main_thread()->worker->main_manager(); }
 
 uint64_t ThreadPool::nodes_searched() const { return accumulate(&Search::Worker::nodes); }
-uint64_t ThreadPool::tb_hits() const { return accumulate(&Search::Worker::tbHits); }
 
 // Creates/destroys threads to match the requested number.
 // Created and launched threads will immediately go to sleep in idle_loop.
@@ -237,8 +234,7 @@ size_t ThreadPool::num_threads() const { return threads.size(); }
 
 // Wakes up main thread waiting in idle_loop() and returns immediately.
 // Main thread will wake up other threads and start the search.
-void ThreadPool::start_thinking(const OptionsMap&  options,
-                                Position&          pos,
+void ThreadPool::start_thinking( Position&          pos,
                                 StateListPtr&      states,
                                 Search::LimitsType limits) {
 
@@ -264,8 +260,6 @@ void ThreadPool::start_thinking(const OptionsMap&  options,
         for (const auto& m : legalmoves)
             rootMoves.emplace_back(m);
 
-    Tablebases::Config tbConfig = Tablebases::rank_root_moves(options, pos, rootMoves);
-
     // After ownership transfer 'states' becomes empty, so if we stop the search
     // and call 'go' again without setting a new position states.get() == nullptr.
     assert(states.get() || setupStates.get());
@@ -282,13 +276,12 @@ void ThreadPool::start_thinking(const OptionsMap&  options,
     {
         th->run_custom_job([&]() {
             th->worker->limits = limits;
-            th->worker->nodes = th->worker->tbHits = th->worker->nmpMinPly =
+            th->worker->nodes = th->worker->nmpMinPly =
               th->worker->bestMoveChanges          = 0;
             th->worker->rootDepth = th->worker->completedDepth = 0;
             th->worker->rootMoves                              = rootMoves;
             th->worker->rootPos.set(pos.fen(), pos.is_chess960(), &th->worker->rootState);
             th->worker->rootState = setupStates->back();
-            th->worker->tbConfig  = tbConfig;
         });
     }
 
@@ -297,73 +290,6 @@ void ThreadPool::start_thinking(const OptionsMap&  options,
 
     main_thread()->start_searching();
 }
-
-Thread* ThreadPool::get_best_thread() const {
-
-    Thread* bestThread = threads.front().get();
-    Value   minScore   = VALUE_NONE;
-
-    std::unordered_map<Move, int64_t, Move::MoveHash> votes(
-      2 * std::min(size(), bestThread->worker->rootMoves.size()));
-
-    // Find the minimum score of all threads
-    for (auto&& th : threads)
-        minScore = std::min(minScore, th->worker->rootMoves[0].score);
-
-    // Vote according to score and depth, and select the best thread
-    auto thread_voting_value = [minScore](Thread* th) {
-        return (th->worker->rootMoves[0].score - minScore + 14) * int(th->worker->completedDepth);
-    };
-
-    for (auto&& th : threads)
-        votes[th->worker->rootMoves[0].pv[0]] += thread_voting_value(th.get());
-
-    for (auto&& th : threads)
-    {
-        const auto bestThreadScore = bestThread->worker->rootMoves[0].score;
-        const auto newThreadScore  = th->worker->rootMoves[0].score;
-
-        const auto& bestThreadPV = bestThread->worker->rootMoves[0].pv;
-        const auto& newThreadPV  = th->worker->rootMoves[0].pv;
-
-        const auto bestThreadMoveVote = votes[bestThreadPV[0]];
-        const auto newThreadMoveVote  = votes[newThreadPV[0]];
-
-        const bool bestThreadInProvenWin = is_win(bestThreadScore);
-        const bool newThreadInProvenWin  = is_win(newThreadScore);
-
-        const bool bestThreadInProvenLoss =
-          bestThreadScore != -VALUE_INFINITE && is_loss(bestThreadScore);
-        const bool newThreadInProvenLoss =
-          newThreadScore != -VALUE_INFINITE && is_loss(newThreadScore);
-
-        // We make sure not to pick a thread with truncated principal variation
-        const bool betterVotingValue =
-          thread_voting_value(th.get()) * int(newThreadPV.size() > 2)
-          > thread_voting_value(bestThread) * int(bestThreadPV.size() > 2);
-
-        if (bestThreadInProvenWin)
-        {
-            // Make sure we pick the shortest mate / TB conversion
-            if (newThreadScore > bestThreadScore)
-                bestThread = th.get();
-        }
-        else if (bestThreadInProvenLoss)
-        {
-            // Make sure we pick the shortest mated / TB conversion
-            if (newThreadInProvenLoss && newThreadScore < bestThreadScore)
-                bestThread = th.get();
-        }
-        else if (newThreadInProvenWin || newThreadInProvenLoss
-                 || (!is_loss(newThreadScore)
-                     && (newThreadMoveVote > bestThreadMoveVote
-                         || (newThreadMoveVote == bestThreadMoveVote && betterVotingValue))))
-            bestThread = th.get();
-    }
-
-    return bestThread;
-}
-
 
 // Start non-main threads.
 // Will be invoked by main thread after it has started searching.

@@ -81,34 +81,6 @@ r4rk1/1b2ppbp/pq4pn/2pp1PB1/1p2P3/1P1P1NN1/1PP3PP/R2Q1RK1 w - - 0 13
     def delete_bench_epd():
         os.remove(f"{os.path.join(PATH,'bench_tmp.epd')}")
 
-
-class Syzygy:
-    @staticmethod
-    def get_syzygy_path():
-        return os.path.abspath("syzygy")
-
-    @staticmethod
-    def download_syzygy():
-        if not os.path.isdir(os.path.join(PATH, "syzygy")):
-            url = "https://api.github.com/repos/niklasf/python-chess/tarball/9b9aa13f9f36d08aadfabff872882f4ab1494e95"
-            file = "niklasf-python-chess-9b9aa13"
-
-            with tempfile.TemporaryDirectory() as tmpdirname:
-                tarball_path = os.path.join(tmpdirname, f"{file}.tar.gz")
-
-                response = requests.get(url, stream=True)
-                with open(tarball_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-
-                with tarfile.open(tarball_path, "r:gz") as tar:
-                    tar.extractall(tmpdirname)
-
-                shutil.move(
-                    os.path.join(tmpdirname, file), os.path.join(PATH, "syzygy")
-                )
-
-
 class OrderedClassMembers(type):
     @classmethod
     def __prepare__(self, name, bases):
