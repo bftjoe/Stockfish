@@ -41,19 +41,8 @@ struct EvalFile {
     std::string netDescription;
 };
 
-
-struct NnueEvalTrace {
-    static_assert(LayerStacks == PSQTBuckets);
-
-    Value       psqt[LayerStacks];
-    Value       positional[LayerStacks];
-    std::size_t correctBucket;
-};
-
 struct Networks;
 struct AccumulatorCaches;
-
-std::string trace(Position& pos, const Networks& networks, AccumulatorCaches& caches);
 
 }  // namespace Stockfish::Eval::NNUE
 }  // namespace Stockfish

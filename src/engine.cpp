@@ -37,7 +37,6 @@
 #include "perft.h"
 #include "position.h"
 #include "search.h"
-#include "syzygy/tbprobe.h"
 #include "types.h"
 #include "uci.h"
 #include "ucioption.h"
@@ -58,8 +57,7 @@ Engine::Engine(std::optional<std::string> path) :
     networks(
       numaContext,
       NN::Networks(
-        NN::NetworkBig({EvalFileDefaultNameBig, "None", ""}, NN::EmbeddedNNUEType::BIG),
-        NN::NetworkSmall({EvalFileDefaultNameSmall, "None", ""}, NN::EmbeddedNNUEType::SMALL))) {
+        NN::NetworkSmall({EvalFileDefaultNameSmall, "None", ""}))) {
     pos.set(StartFEN, false, &states->back());
 
 
@@ -97,42 +95,11 @@ Engine::Engine(std::optional<std::string> path) :
     options.add(  //
       "Ponder", Option(false));
 
-    options.add(  //
-      "MultiPV", Option(1, 1, MAX_MOVES));
-
-    options.add("Skill Level", Option(20, 0, 20));
-
     options.add("Move Overhead", Option(10, 0, 5000));
-
-    options.add("nodestime", Option(0, 0, 10000));
 
     options.add("UCI_Chess960", Option(false));
 
-    options.add("UCI_LimitStrength", Option(false));
-
-    options.add("UCI_Elo",
-                Option(Stockfish::Search::Skill::LowestElo, Stockfish::Search::Skill::LowestElo,
-                       Stockfish::Search::Skill::HighestElo));
-
     options.add("UCI_ShowWDL", Option(false));
-
-    options.add(  //
-      "SyzygyPath", Option("", [](const Option& o) {
-          Tablebases::init(o);
-          return std::nullopt;
-      }));
-
-    options.add("SyzygyProbeDepth", Option(1, 1, 100));
-
-    options.add("Syzygy50MoveRule", Option(true));
-
-    options.add("SyzygyProbeLimit", Option(7, 0, 7));
-
-    options.add(  //
-      "EvalFile", Option(EvalFileDefaultNameBig, [this](const Option& o) {
-          load_big_network(o);
-          return std::nullopt;
-      }));
 
     options.add(  //
       "EvalFileSmall", Option(EvalFileDefaultNameSmall, [this](const Option& o) {
@@ -154,7 +121,7 @@ void Engine::go(Search::LimitsType& limits) {
     assert(limits.perft == 0);
     verify_networks();
 
-    threads.start_thinking(options, pos, states, limits);
+    threads.start_thinking(pos, states, limits);
 }
 void Engine::stop() { threads.stop = true; }
 
@@ -163,9 +130,6 @@ void Engine::search_clear() {
 
     tt.clear(threads);
     threads.clear();
-
-    // @TODO wont work with multiple instances
-    Tablebases::init(options["SyzygyPath"]);  // Free mapped files
 }
 
 void Engine::set_on_update_no_moves(std::function<void(const Engine::InfoShort&)>&& f) {
@@ -252,22 +216,13 @@ void Engine::set_ponderhit(bool b) { threads.main_manager()->ponder = b; }
 // network related
 
 void Engine::verify_networks() const {
-    networks->big.verify(options["EvalFile"], onVerifyNetworks);
     networks->small.verify(options["EvalFileSmall"], onVerifyNetworks);
 }
 
 void Engine::load_networks() {
     networks.modify_and_replicate([this](NN::Networks& networks_) {
-        networks_.big.load(binaryDirectory, options["EvalFile"]);
         networks_.small.load(binaryDirectory, options["EvalFileSmall"]);
     });
-    threads.clear();
-    threads.ensure_network_replicated();
-}
-
-void Engine::load_big_network(const std::string& file) {
-    networks.modify_and_replicate(
-      [this, &file](NN::Networks& networks_) { networks_.big.load(binaryDirectory, file); });
     threads.clear();
     threads.ensure_network_replicated();
 }
@@ -279,24 +234,7 @@ void Engine::load_small_network(const std::string& file) {
     threads.ensure_network_replicated();
 }
 
-void Engine::save_network(const std::pair<std::optional<std::string>, std::string> files[2]) {
-    networks.modify_and_replicate([&files](NN::Networks& networks_) {
-        networks_.big.save(files[0].first);
-        networks_.small.save(files[1].first);
-    });
-}
-
 // utility functions
-
-void Engine::trace_eval() const {
-    StateListPtr trace_states(new std::deque<StateInfo>(1));
-    Position     p;
-    p.set(pos.fen(), options["UCI_Chess960"], &trace_states->back());
-
-    verify_networks();
-
-    sync_cout << "\n" << Eval::trace(p, *networks) << sync_endl;
-}
 
 const OptionsMap& Engine::get_options() const { return options; }
 OptionsMap&       Engine::get_options() { return options; }
