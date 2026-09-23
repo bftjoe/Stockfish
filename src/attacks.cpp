@@ -101,8 +101,12 @@ alignas(64) extern constexpr std::array<DualMagic, SQUARE_NB> DualMagics = make_
 namespace {
 void init_magics(PieceType pt, Bitboard table[], Magic magics[][2]) {
 
-    int seeds[][RANK_NB] = {{8977, 44560, 54343, 38998, 5731, 95205, 104912, 17020},
-                            {728, 10316, 55013, 32803, 12281, 15100, 16645, 255}};
+    int seeds[RANK_NB] =
+        #if defined Is64Bit
+            {728, 10316, 55013, 32803, 12281, 15100, 16645, 255};
+        #else
+            {8977, 44560, 54343, 38998, 5731, 95205, 104912, 17020};
+        #endif
 
     Bitboard occupancy[4096];
     int      epoch[4096] = {}, cnt = 0;
@@ -130,7 +134,7 @@ void init_magics(PieceType pt, Bitboard table[], Magic magics[][2]) {
             b = (b - m.mask) & m.mask;
         } while (b);
 
-        PRNG rng(seeds[Is64Bit][rank_of(s)]);
+        PRNG rng(seeds[rank_of(s)]);
 
         for (int i = 0; i < size;)
         {
