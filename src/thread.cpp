@@ -85,7 +85,6 @@ Thread::~Thread() {
 
     assert(!searching);
 
-    exit = true;
     start_searching();
     stdThread.join();
 }
@@ -133,7 +132,7 @@ void Thread::idle_loop() {
         cv.notify_one();  // Wake up anyone waiting for search finished
         cv.wait(lk, [&] { return searching; });
 
-        if (exit)
+        if (ThreadPool::exit.load(std::memory_order_relaxed))
             return;
 
         std::function<void()> job = std::move(jobFunc);

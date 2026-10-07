@@ -87,52 +87,55 @@ void OptionsMap::add(const std::string& name, const Option& option) {
 usize OptionsMap::count(const std::string& name) const { return options_map.count(name); }
 
 Option::Option(const char* v, OnChange f) :
-    type("string"),
+    type(StringOption{}),
     on_change(std::move(f)) {
     defaultValue = currentValue = v;
 }
 
 Option::Option(bool v, OnChange f) :
-    type("check"),
+    type(CheckOption{}),
     on_change(std::move(f)) {
     defaultValue = currentValue = (v ? "true" : "false");
 }
 
 Option::Option(OnChange f) :
-    type("button"),
+    type(ButtonOption{}),
     on_change(std::move(f)) {}
 
 Option::Option(int v, int minv, int maxv, OnChange f) :
-    type("spin"),
-    min(minv),
-    max(maxv),
+    type(SpinOption{minv, maxv}),
     on_change(std::move(f)) {
     defaultValue = currentValue = std::to_string(v);
 }
 
 Option::Option(const char* v, const char* cur, OnChange f) :
-    type("combo"),
+    type(ComboOption{}),
     on_change(std::move(f)) {
     defaultValue = v;
     currentValue = cur;
 }
 
 Option::operator int() const {
-    assert(type == "check" || type == "spin");
-    return (type == "spin" ? std::stoi(currentValue) : currentValue == "true");
+    const bool isSpin = std::holds_alternative<SpinOption>(type);
+    assert(std::holds_alternative<CheckOption>(type) || isSpin);
+    return (isSpin ? std::stoi(currentValue) : currentValue == "true");
 }
 
 Option::operator std::string() const {
-    assert(type == "string");
+    assert(std::holds_alternative<StringOption>(type));
     return currentValue;
 }
 
 bool Option::operator==(const char* s) const {
-    assert(type == "combo");
+    assert(std::holds_alternative<ComboOption>(type));
     return !CaseInsensitiveLess()(currentValue, s) && !CaseInsensitiveLess()(s, currentValue);
 }
 
 bool Option::operator!=(const char* s) const { return !(*this == s); }
+
+const char* Option::type_name() const {
+    return std::visit([](const auto& optionType) { return optionType.name; }, type);
+}
 
 static bool value_in_range(const std::string& v, int min, int max) {
     if (v.empty())
@@ -150,14 +153,18 @@ static bool value_in_range(const std::string& v, int min, int max) {
 // from the user by console window, so let's check the bounds anyway.
 Option& Option::operator=(const std::string& v) {
 
-    assert(!type.empty());
+    const bool isButton = std::holds_alternative<ButtonOption>(type);
+    const bool isCheck  = std::holds_alternative<CheckOption>(type);
+    const bool isSpin   = std::holds_alternative<SpinOption>(type);
+    const bool isString = std::holds_alternative<StringOption>(type);
+    const bool isCombo  = std::holds_alternative<ComboOption>(type);
 
-    if ((type != "button" && type != "string" && v.empty())
-        || (type == "check" && v != "true" && v != "false")
-        || (type == "spin" && !value_in_range(v, min, max)))
+    if ((!isButton && !isString && v.empty()) || (isCheck && v != "true" && v != "false")
+        || (isSpin
+            && !value_in_range(v, std::get<SpinOption>(type).min, std::get<SpinOption>(type).max)))
         return *this;
 
-    if (type == "combo")
+    if (isCombo)
     {
         OptionsMap         comboMap;  // To have case insensitive compare
         std::string        token;
@@ -168,9 +175,9 @@ Option& Option::operator=(const std::string& v) {
             return *this;
     }
 
-    if (type == "string")
+    if (isString)
         currentValue = v == "<empty>" ? "" : v;
-    else if (type != "button")
+    else if (!isButton)
         currentValue = v;
 
     if (on_change)
@@ -190,20 +197,24 @@ std::ostream& operator<<(std::ostream& os, const OptionsMap& om) {
             if (it.second.idx == idx)
             {
                 const Option& o = it.second;
-                os << "\noption name " << it.first << " type " << o.type;
+                os << "\noption name " << it.first << " type " << o.type_name();
 
-                if (o.type == "check" || o.type == "combo")
+                if (std::holds_alternative<Option::CheckOption>(o.type)
+                    || std::holds_alternative<Option::ComboOption>(o.type))
                     os << " default " << o.defaultValue;
 
-                else if (o.type == "string")
+                else if (std::holds_alternative<Option::StringOption>(o.type))
                 {
                     std::string defaultValue = o.defaultValue.empty() ? "<empty>" : o.defaultValue;
                     os << " default " << defaultValue;
                 }
 
-                else if (o.type == "spin")
-                    os << " default " << stoi(o.defaultValue) << " min " << o.min << " max "
-                       << o.max;
+                else if (std::holds_alternative<Option::SpinOption>(o.type))
+                {
+                    const auto& spin = std::get<Option::SpinOption>(o.type);
+                    os << " default " << stoi(o.defaultValue) << " min " << spin.min << " max "
+                       << spin.max;
+                }
 
                 break;
             }

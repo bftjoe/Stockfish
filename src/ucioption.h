@@ -24,6 +24,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <variant>
 
 #include "misc.h"
 
@@ -61,9 +62,30 @@ class Option {
     friend class Engine;
     friend class Tune;
 
+    struct ButtonOption {
+        static constexpr const char* name = "button";
+    };
+    struct CheckOption {
+        static constexpr const char* name = "check";
+    };
+    struct SpinOption {
+        static constexpr const char* name = "spin";
+        int min = 0;
+        int max = 0;
+    };
+    struct StringOption {
+        static constexpr const char* name = "string";
+    };
+    struct ComboOption {
+        static constexpr const char* name = "combo";
+    };
 
-    std::string       defaultValue, currentValue, type;
-    int               min = 0, max = 0;
+    using Type = std::variant<ButtonOption, CheckOption, SpinOption, StringOption, ComboOption>;
+
+    const char* type_name() const;
+
+    std::string       defaultValue, currentValue;
+    Type              type;
     usize             idx = 0;
     OnChange          on_change;
     const OptionsMap* parent = nullptr;
